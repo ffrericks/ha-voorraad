@@ -666,7 +666,8 @@
                 <div class="vz-s">${esc(p.categorie)} · ingevroren ${vz.nl(p.ingevroren)} · op voor <span class="${late ? 'late' : ''}">${vz.nl(p.op_voor)}</span>` +
                 `${p.begin && p.begin !== p.hoeveelheid ? ' · was ' + esc(p.begin) : ''}${p.opmerking ? ' · ' + esc(p.opmerking) : ''}</div>
                 <div class="vz-b"><button class="pri" data-vz="all-out" data-code="${c}">Helemaal eruit</button>
-                  <button data-vz="reprint" data-code="${c}">Label printen</button><button data-vz="edit" data-code="${c}">Wijzigen</button></div>` +
+                  <button data-vz="reprint" data-code="${c}">Label printen</button><button data-vz="edit" data-code="${c}">Wijzigen</button>
+                  <button data-vz="open" data-code="${c}">Inklappen</button></div>` +
                 (p.getal != null ? `<div class="vz-part"><input class="vz-amount" placeholder="bv. 200 g" autocomplete="off">` +
                   `<button data-vz="part" data-code="${c}">Haal eruit</button><button data-vz="rest" data-code="${c}">Blijft over</button></div>`
                   : '<div class="vz-s" style="margin-top:6px">Geen hoeveelheid bekend; vul die in bij Wijzigen om een deel eruit te halen.</div>') + `
