@@ -1,0 +1,687 @@
+# Vriezer dashboard view - paste under `views:` in a dashboard (Raw configuration editor),
+# or create a new dashboard and paste it as one of its views.
+# Needs: the Vriezer integration and custom:button-card (HACS).
+# Set Settings > Vriezer > Configure > General > dashboard path to /lovelace/vriezer
+# (or the path of the dashboard you paste this into) for the Open button in scan notifications.
+- title: Vriezer
+  path: vriezer
+  icon: mdi:fridge-outline
+  type: sections
+  max_columns: 2
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Vriezer
+      icon: mdi:fridge-outline
+      heading_style: title
+    - type: heading
+      heading: Toevoegen
+      icon: mdi:plus-circle-outline
+      heading_style: subtitle
+    - type: custom:button-card
+      triggers_update:
+      - sensor.vriezer_voorraad
+      show_name: false
+      show_icon: false
+      show_state: false
+      tap_action:
+        action: none
+      hold_action:
+        action: none
+      custom_fields:
+        formulier: |-
+          [[[
+
+          const vz = window.__vz2 = window.__vz2 || { open: null, edit: null, msg: {} };
+          const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+          vz.esc = esc;
+          vz.nl = (d) => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '';
+          vz.hm = () => new Date().toTimeString().slice(0, 5);
+          vz.hass = () => document.querySelector('home-assistant').hass;
+          vz.call = (service, data) => vz.hass().connection.sendMessagePromise({
+            type: 'call_service', domain: 'vriezer', service, service_data: data, return_response: true,
+          }).then((r) => r.response || { ok: true }, (e) => ({ ok: false, fout: e.message || String(e) }));
+          vz.msgHtml = (key) => {
+            const m = vz.msg[key];
+            if (!m || Date.now() - m.t > 10 * 60000) return '<div class="vz-status"></div>';
+            return `<div class="vz-status ${m.ok ? 'ok' : 'err'}">${esc(m.text)}</div>`;
+          };
+          vz.say = (el, key, text, ok) => {
+            vz.msg[key] = { text, ok, t: Date.now() };
+            const root = el.getRootNode();
+            const s = root.querySelector && root.querySelector('.vz-status');
+            if (s) { s.textContent = text; s.className = 'vz-status ' + (ok ? 'ok' : 'err'); }
+          };
+          vz.arm = (el, label) => {
+            if (Date.now() - Number(el.dataset.armed || 0) < 4000) return true;
+            el.dataset.armed = Date.now(); el.textContent = 'Zeker?'; el.classList.add('arm');
+            setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = label; el.classList.remove('arm'); } }, 4000);
+            return false;
+          };
+          vz.act = async (el) => {
+            const a = el.dataset.vz;
+            const code = el.dataset.code;
+            const row = el.closest('.vz-pk');
+            if (a === 'add') {
+              const f = el.closest('.vz-form');
+              const v = (n) => f.querySelector(`[name=${n}]`).value.trim();
+              const data = { categorie: v('categorie'), naam: v('naam'), hoeveelheid: v('hoeveelheid'),
+                pakjes: Number(v('pakjes') || 1), ingevroren: v('ingevroren') };
+              vz.say(el, 'form', 'Bezig...', true);
+              const r = await vz.call('toevoegen', data);
+              if (!r.ok) { vz.say(el, 'form', r.fout || 'Toevoegen mislukt', false); return; }
+              for (const n of ['naam', 'hoeveelheid', 'ingevroren']) f.querySelector(`[name=${n}]`).value = '';
+              f.querySelector('[name=pakjes]').value = '1';
+              const codes = r.codes.length > 1 ? `${r.codes[0]} t/m ${r.codes[r.codes.length - 1]}` : r.codes[0];
+              vz.say(el, 'form', `Om ${vz.hm()} ${r.codes.length}x ${data.naam} toegevoegd (${codes}). Het label staat klaar bij Labels printen.`, true);
+              return;
+            }
+            if (a === 'print-all' || a === 'print' || a === 'reprint') {
+              const key = a === 'reprint' ? 'list' : 'queue';
+              const old = el.textContent; el.textContent = 'Bezig...'; el.disabled = true;
+              const r = await vz.call('labels_printen', code ? { codes: code } : {});
+              el.textContent = old; el.disabled = false;
+              vz.say(el, key, r.ok ? `Om ${vz.hm()} ${r.geprint.length} label${r.geprint.length === 1 ? '' : 's'} geprint` : r.fout, r.ok);
+              return;
+            }
+            if (a === 'skip') {
+              const r = await vz.call('uit_wachtrij', { codes: code });
+              if (!r.ok) vz.say(el, 'queue', r.fout, false);
+              return;
+            }
+            if (a === 'open') {
+              vz.open = vz.open === code ? null : code; vz.edit = null;
+              for (const r of el.getRootNode().querySelectorAll('.vz-pk')) {
+                r.classList.toggle('open', r.dataset.code === vz.open); r.classList.remove('editing');
+              }
+              return;
+            }
+            if (a === 'all-out') {
+              if (!vz.arm(el, 'Helemaal eruit')) return;
+              const r = await vz.call('uithalen', { code });
+              vz.say(el, 'list', r.ok ? `${code} is uit de vriezer` : r.fout, r.ok);
+              if (r.ok) vz.open = null;
+              return;
+            }
+            if (a === 'part' || a === 'rest') {
+              const val = row.querySelector('.vz-amount').value.trim();
+              if (!val) { vz.say(el, 'list', a === 'part' ? 'Vul in hoeveel je eruit haalt' : 'Vul in wat er overblijft', false); return; }
+              const r = await vz.call('uithalen', a === 'part' ? { code, hoeveelheid: val } : { code, rest: val });
+              vz.say(el, 'list', r.ok ? (r.op ? `${code} is op` : `${code}: nog ${r.over} over`) : r.fout, r.ok);
+              return;
+            }
+            if (a === 'edit') {
+              vz.edit = vz.edit === code ? null : code;
+              row.classList.toggle('editing', vz.edit === code);
+              return;
+            }
+            if (a === 'save-edit') {
+              const v = (n) => row.querySelector(`[name=${n}]`).value.trim();
+              const r = await vz.call('wijzigen', { code, naam: v('naam'), hoeveelheid: v('hoeveelheid'),
+                ingevroren: v('ingevroren'), op_voor: v('op_voor'), opmerking: v('opmerking') });
+              vz.say(el, 'list', r.ok ? `${code} opgeslagen` : r.fout, r.ok);
+              if (r.ok) vz.edit = null;
+              return;
+            }
+            if (a === 'wipe') {
+              if (!vz.arm(el, 'Wissen (vergissing)')) return;
+              const r = await vz.call('verwijderen', { code });
+              vz.say(el, 'list', r.ok ? `${code} gewist` : r.fout, r.ok);
+              return;
+            }
+            if (a === 'undo') {
+              const r = await vz.call('terugzetten', { code });
+              vz.say(el, 'list', r.ok ? `${code} staat weer in de vriezer` : r.fout, r.ok);
+              return;
+            }
+            if (a === 'bon') {
+              el.disabled = true;
+              const r = await vz.call('bon_printen', {});
+              el.disabled = false;
+              vz.say(el, 'list', r.ok ? `Om ${vz.hm()} overzicht naar de bonprinter gestuurd` : r.fout, r.ok);
+            }
+          };
+          if (!window.__vzF) {
+            // button-card blocks the default action of a tap, so a tapped field never gets focus on a
+            // phone. Focus it ourselves (and open the picker of a select or date field).
+            window.__vzF = true;
+            let d = null;
+            document.addEventListener('pointerdown', (ev) => { d = ev.pointerType === 'mouse' ? null : { x: ev.clientX, y: ev.clientY, t: Date.now() }; }, true);
+            document.addEventListener('pointerup', (ev) => {
+              if (ev.pointerType === 'mouse' || !d) return;
+              const ok = Math.hypot(ev.clientX - d.x, ev.clientY - d.y) < 10 && Date.now() - d.t < 700;
+              d = null;
+              const path = ev.composedPath();
+              const t = path[0];
+              if (!ok || !t || !['INPUT', 'SELECT', 'TEXTAREA'].includes(t.tagName)) return;
+              if (!path.some((e) => e && e.classList && e.classList.contains('vz'))) return;
+              t.focus();
+              if (t.tagName === 'SELECT' || t.type === 'date') { try { t.showPicker(); } catch (e) { /* not allowed */ } }
+            }, true);
+          }
+          if (!window.__vz2L) {
+            window.__vz2L = true;
+            let down = null; let lastTouch = 0;
+            const handle = (ev) => {
+              const el = ev.composedPath().find((e) => e && e.dataset && e.dataset.vz);
+              if (!el || el.disabled) return;
+              ev.preventDefault();
+              window.__vz2.act(el);
+            };
+            document.addEventListener('pointerdown', (ev) => { down = ev.pointerType === 'mouse' ? null : { x: ev.clientX, y: ev.clientY, t: Date.now() }; }, true);
+            document.addEventListener('pointerup', (ev) => {
+              if (ev.pointerType === 'mouse' || !down) return;
+              const ok = Math.hypot(ev.clientX - down.x, ev.clientY - down.y) < 10 && Date.now() - down.t < 700;
+              down = null;
+              if (ok) { lastTouch = Date.now(); handle(ev); }
+            }, true);
+            document.addEventListener('click', (ev) => { if (Date.now() - lastTouch < 800) return; handle(ev); }, true);
+            const inForm = (ev) => ev.composedPath().some((e) => e && e.classList && e.classList.contains('vz-keys'));
+            // button-card treats Space/Enter as a tap and swallows them; keep keys inside the inputs.
+            for (const type of ['keydown', 'keyup', 'keypress']) {
+              document.addEventListener(type, (ev) => { if (inForm(ev)) ev.stopPropagation(); }, true);
+            }
+            // open the native date picker on a tap anywhere in the field
+            document.addEventListener('click', (ev) => {
+              const t = ev.composedPath()[0];
+              if (!t || t.tagName !== 'INPUT' || t.type !== 'date' || !inForm(ev)) return;
+              try { t.showPicker(); } catch (e) { /* already open */ }
+            }, true);
+          }
+
+          // Keep this HTML constant (no state in it), so typed text survives re-renders.
+          const cats = ((states['sensor.vriezer_voorraad'] || {}).attributes || {}).categorieen || [];
+          if (!cats.length) return "<style>\n  .vz{text-align:left;font-size:14px;line-height:1.4;white-space:normal}\n  .vz button{font:inherit;font-size:13px;border:1px solid var(--divider-color);background:var(--card-background-color);\n    color:var(--primary-text-color);border-radius:8px;padding:6px 11px;cursor:pointer}\n  .vz button.pri{background:var(--primary-color);border-color:var(--primary-color);color:#fff}\n  .vz button.arm{background:var(--error-color,#c62828);border-color:var(--error-color,#c62828);color:#fff}\n  .vz button[disabled]{opacity:.6}\n  .vz label{display:block;font-size:12px;color:var(--secondary-text-color);margin:8px 0 2px}\n  .vz input,.vz select{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:8px;\n    border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color)}\n  .vz input[type=date]{cursor:pointer}\n  .vz-row{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}\n  .vz-b{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}\n  .vz-status{margin-top:8px;font-size:13px;min-height:1em}\n  .vz-status:empty{display:none}\n  .vz-status.err{color:var(--error-color,#c62828)}\n  .vz-status.ok{color:var(--success-color,#2e7d32)}\n  .vz-s{color:var(--secondary-text-color);font-size:13px}\n  .vz-empty{color:var(--secondary-text-color);font-size:13px}\n  .vz-h{font-weight:600;font-size:15px;margin:14px 0 4px}\n  .vz-h:first-child{margin-top:0}\n  .vz-h span{font-weight:400;color:var(--secondary-text-color);font-size:13px}\n  table.vz-t{width:100%;border-collapse:collapse;font-size:13px}\n  .vz-t td{padding:4px 6px 4px 0;border-top:1px solid var(--divider-color);vertical-align:top}\n  .vz-t td.n{font-weight:500}\n  .vz-t td.o{color:var(--secondary-text-color);white-space:nowrap}\n  .late{color:var(--error-color,#c62828) !important}\n  .vz-q{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--divider-color)}\n  .vz-q .n{flex:1}\n  .vz-q code,.vz-pk code{font-size:12px;background:var(--secondary-background-color,#f1f1f1);border-radius:6px;padding:1px 6px}\n  .vz-pk{border-top:1px solid var(--divider-color)}\n  .vz-pk .top{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer}\n  .vz-pk .top .n{flex:1}\n  .vz-pk .top .q{color:var(--secondary-text-color);white-space:nowrap}\n  .vz-pk .more,.vz-pk .ed{display:none;padding:2px 0 12px}\n  .vz-pk.open .more{display:block}\n  .vz-pk.open.editing .ed{display:block}\n  .vz-pk.open{background:var(--secondary-background-color,#f6f6f6);margin:0 -10px;padding:0 10px;border-radius:10px}\n  .vz-part{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}\n  .vz-part input{flex:1;min-width:90px;width:auto}\n  .vz-badge{font-size:11px;border-radius:8px;padding:1px 7px;background:#fff3cd;color:#7a5b00;margin-left:4px;white-space:nowrap}\n  .vz details summary{cursor:pointer;color:var(--secondary-text-color);margin-top:14px}\n</style>" + '<div class="vz vz-empty">De integratie Vriezer is (nog) niet geladen.</div>';
+          return "<style>\n  .vz{text-align:left;font-size:14px;line-height:1.4;white-space:normal}\n  .vz button{font:inherit;font-size:13px;border:1px solid var(--divider-color);background:var(--card-background-color);\n    color:var(--primary-text-color);border-radius:8px;padding:6px 11px;cursor:pointer}\n  .vz button.pri{background:var(--primary-color);border-color:var(--primary-color);color:#fff}\n  .vz button.arm{background:var(--error-color,#c62828);border-color:var(--error-color,#c62828);color:#fff}\n  .vz button[disabled]{opacity:.6}\n  .vz label{display:block;font-size:12px;color:var(--secondary-text-color);margin:8px 0 2px}\n  .vz input,.vz select{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:8px;\n    border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color)}\n  .vz input[type=date]{cursor:pointer}\n  .vz-row{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}\n  .vz-b{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}\n  .vz-status{margin-top:8px;font-size:13px;min-height:1em}\n  .vz-status:empty{display:none}\n  .vz-status.err{color:var(--error-color,#c62828)}\n  .vz-status.ok{color:var(--success-color,#2e7d32)}\n  .vz-s{color:var(--secondary-text-color);font-size:13px}\n  .vz-empty{color:var(--secondary-text-color);font-size:13px}\n  .vz-h{font-weight:600;font-size:15px;margin:14px 0 4px}\n  .vz-h:first-child{margin-top:0}\n  .vz-h span{font-weight:400;color:var(--secondary-text-color);font-size:13px}\n  table.vz-t{width:100%;border-collapse:collapse;font-size:13px}\n  .vz-t td{padding:4px 6px 4px 0;border-top:1px solid var(--divider-color);vertical-align:top}\n  .vz-t td.n{font-weight:500}\n  .vz-t td.o{color:var(--secondary-text-color);white-space:nowrap}\n  .late{color:var(--error-color,#c62828) !important}\n  .vz-q{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--divider-color)}\n  .vz-q .n{flex:1}\n  .vz-q code,.vz-pk code{font-size:12px;background:var(--secondary-background-color,#f1f1f1);border-radius:6px;padding:1px 6px}\n  .vz-pk{border-top:1px solid var(--divider-color)}\n  .vz-pk .top{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer}\n  .vz-pk .top .n{flex:1}\n  .vz-pk .top .q{color:var(--secondary-text-color);white-space:nowrap}\n  .vz-pk .more,.vz-pk .ed{display:none;padding:2px 0 12px}\n  .vz-pk.open .more{display:block}\n  .vz-pk.open.editing .ed{display:block}\n  .vz-pk.open{background:var(--secondary-background-color,#f6f6f6);margin:0 -10px;padding:0 10px;border-radius:10px}\n  .vz-part{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}\n  .vz-part input{flex:1;min-width:90px;width:auto}\n  .vz-badge{font-size:11px;border-radius:8px;padding:1px 7px;background:#fff3cd;color:#7a5b00;margin-left:4px;white-space:nowrap}\n  .vz details summary{cursor:pointer;color:var(--secondary-text-color);margin-top:14px}\n</style>" + `<div class="vz vz-form vz-keys">
+            <div class="vz-row">
+              <div><label>Categorie</label><select name="categorie">${cats.map((c) => `<option>${esc(c)}</option>`).join('')}</select></div>
+              <div><label>Aantal pakjes</label><input name="pakjes" type="number" min="1" max="50" value="1" inputmode="numeric"></div>
+            </div>
+            <label>Naam</label><input name="naam" placeholder="bv. Rundergehakt" autocomplete="off">
+            <div class="vz-row">
+              <div><label>Per pakje</label><input name="hoeveelheid" placeholder="bv. 400 g of 3 stuks" autocomplete="off"></div>
+              <div><label>Ingevroren op (leeg = vandaag)</label><input name="ingevroren" type="date"></div>
+            </div>
+            <div class="vz-b"><button class="pri" data-vz="add">Toevoegen</button></div>
+            <div class="vz-status"></div>
+          </div>`;
+          ]]]
+      styles:
+        card:
+        - padding: 12px 16px 14px
+        - pointer-events: auto
+        - cursor: default
+        grid:
+        - grid-template-areas: '"formulier"'
+        - grid-template-columns: 1fr
+        custom_fields:
+          formulier:
+          - width: 100%
+      grid_options:
+        columns: full
+        rows: auto
+    - type: heading
+      heading: Labels printen
+      icon: mdi:printer-outline
+      heading_style: subtitle
+    - type: custom:button-card
+      triggers_update:
+      - sensor.vriezer_voorraad
+      show_name: false
+      show_icon: false
+      show_state: false
+      tap_action:
+        action: none
+      hold_action:
+        action: none
+      custom_fields:
+        wachtrij: |-
+          [[[
+
+          const vz = window.__vz2 = window.__vz2 || { open: null, edit: null, msg: {} };
+          const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+          vz.esc = esc;
+          vz.nl = (d) => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '';
+          vz.hm = () => new Date().toTimeString().slice(0, 5);
+          vz.hass = () => document.querySelector('home-assistant').hass;
+          vz.call = (service, data) => vz.hass().connection.sendMessagePromise({
+            type: 'call_service', domain: 'vriezer', service, service_data: data, return_response: true,
+          }).then((r) => r.response || { ok: true }, (e) => ({ ok: false, fout: e.message || String(e) }));
+          vz.msgHtml = (key) => {
+            const m = vz.msg[key];
+            if (!m || Date.now() - m.t > 10 * 60000) return '<div class="vz-status"></div>';
+            return `<div class="vz-status ${m.ok ? 'ok' : 'err'}">${esc(m.text)}</div>`;
+          };
+          vz.say = (el, key, text, ok) => {
+            vz.msg[key] = { text, ok, t: Date.now() };
+            const root = el.getRootNode();
+            const s = root.querySelector && root.querySelector('.vz-status');
+            if (s) { s.textContent = text; s.className = 'vz-status ' + (ok ? 'ok' : 'err'); }
+          };
+          vz.arm = (el, label) => {
+            if (Date.now() - Number(el.dataset.armed || 0) < 4000) return true;
+            el.dataset.armed = Date.now(); el.textContent = 'Zeker?'; el.classList.add('arm');
+            setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = label; el.classList.remove('arm'); } }, 4000);
+            return false;
+          };
+          vz.act = async (el) => {
+            const a = el.dataset.vz;
+            const code = el.dataset.code;
+            const row = el.closest('.vz-pk');
+            if (a === 'add') {
+              const f = el.closest('.vz-form');
+              const v = (n) => f.querySelector(`[name=${n}]`).value.trim();
+              const data = { categorie: v('categorie'), naam: v('naam'), hoeveelheid: v('hoeveelheid'),
+                pakjes: Number(v('pakjes') || 1), ingevroren: v('ingevroren') };
+              vz.say(el, 'form', 'Bezig...', true);
+              const r = await vz.call('toevoegen', data);
+              if (!r.ok) { vz.say(el, 'form', r.fout || 'Toevoegen mislukt', false); return; }
+              for (const n of ['naam', 'hoeveelheid', 'ingevroren']) f.querySelector(`[name=${n}]`).value = '';
+              f.querySelector('[name=pakjes]').value = '1';
+              const codes = r.codes.length > 1 ? `${r.codes[0]} t/m ${r.codes[r.codes.length - 1]}` : r.codes[0];
+              vz.say(el, 'form', `Om ${vz.hm()} ${r.codes.length}x ${data.naam} toegevoegd (${codes}). Het label staat klaar bij Labels printen.`, true);
+              return;
+            }
+            if (a === 'print-all' || a === 'print' || a === 'reprint') {
+              const key = a === 'reprint' ? 'list' : 'queue';
+              const old = el.textContent; el.textContent = 'Bezig...'; el.disabled = true;
+              const r = await vz.call('labels_printen', code ? { codes: code } : {});
+              el.textContent = old; el.disabled = false;
+              vz.say(el, key, r.ok ? `Om ${vz.hm()} ${r.geprint.length} label${r.geprint.length === 1 ? '' : 's'} geprint` : r.fout, r.ok);
+              return;
+            }
+            if (a === 'skip') {
+              const r = await vz.call('uit_wachtrij', { codes: code });
+              if (!r.ok) vz.say(el, 'queue', r.fout, false);
+              return;
+            }
+            if (a === 'open') {
+              vz.open = vz.open === code ? null : code; vz.edit = null;
+              for (const r of el.getRootNode().querySelectorAll('.vz-pk')) {
+                r.classList.toggle('open', r.dataset.code === vz.open); r.classList.remove('editing');
+              }
+              return;
+            }
+            if (a === 'all-out') {
+              if (!vz.arm(el, 'Helemaal eruit')) return;
+              const r = await vz.call('uithalen', { code });
+              vz.say(el, 'list', r.ok ? `${code} is uit de vriezer` : r.fout, r.ok);
+              if (r.ok) vz.open = null;
+              return;
+            }
+            if (a === 'part' || a === 'rest') {
+              const val = row.querySelector('.vz-amount').value.trim();
+              if (!val) { vz.say(el, 'list', a === 'part' ? 'Vul in hoeveel je eruit haalt' : 'Vul in wat er overblijft', false); return; }
+              const r = await vz.call('uithalen', a === 'part' ? { code, hoeveelheid: val } : { code, rest: val });
+              vz.say(el, 'list', r.ok ? (r.op ? `${code} is op` : `${code}: nog ${r.over} over`) : r.fout, r.ok);
+              return;
+            }
+            if (a === 'edit') {
+              vz.edit = vz.edit === code ? null : code;
+              row.classList.toggle('editing', vz.edit === code);
+              return;
+            }
+            if (a === 'save-edit') {
+              const v = (n) => row.querySelector(`[name=${n}]`).value.trim();
+              const r = await vz.call('wijzigen', { code, naam: v('naam'), hoeveelheid: v('hoeveelheid'),
+                ingevroren: v('ingevroren'), op_voor: v('op_voor'), opmerking: v('opmerking') });
+              vz.say(el, 'list', r.ok ? `${code} opgeslagen` : r.fout, r.ok);
+              if (r.ok) vz.edit = null;
+              return;
+            }
+            if (a === 'wipe') {
+              if (!vz.arm(el, 'Wissen (vergissing)')) return;
+              const r = await vz.call('verwijderen', { code });
+              vz.say(el, 'list', r.ok ? `${code} gewist` : r.fout, r.ok);
+              return;
+            }
+            if (a === 'undo') {
+              const r = await vz.call('terugzetten', { code });
+              vz.say(el, 'list', r.ok ? `${code} staat weer in de vriezer` : r.fout, r.ok);
+              return;
+            }
+            if (a === 'bon') {
+              el.disabled = true;
+              const r = await vz.call('bon_printen', {});
+              el.disabled = false;
+              vz.say(el, 'list', r.ok ? `Om ${vz.hm()} overzicht naar de bonprinter gestuurd` : r.fout, r.ok);
+            }
+          };
+          if (!window.__vzF) {
+            // button-card blocks the default action of a tap, so a tapped field never gets focus on a
+            // phone. Focus it ourselves (and open the picker of a select or date field).
+            window.__vzF = true;
+            let d = null;
+            document.addEventListener('pointerdown', (ev) => { d = ev.pointerType === 'mouse' ? null : { x: ev.clientX, y: ev.clientY, t: Date.now() }; }, true);
+            document.addEventListener('pointerup', (ev) => {
+              if (ev.pointerType === 'mouse' || !d) return;
+              const ok = Math.hypot(ev.clientX - d.x, ev.clientY - d.y) < 10 && Date.now() - d.t < 700;
+              d = null;
+              const path = ev.composedPath();
+              const t = path[0];
+              if (!ok || !t || !['INPUT', 'SELECT', 'TEXTAREA'].includes(t.tagName)) return;
+              if (!path.some((e) => e && e.classList && e.classList.contains('vz'))) return;
+              t.focus();
+              if (t.tagName === 'SELECT' || t.type === 'date') { try { t.showPicker(); } catch (e) { /* not allowed */ } }
+            }, true);
+          }
+          if (!window.__vz2L) {
+            window.__vz2L = true;
+            let down = null; let lastTouch = 0;
+            const handle = (ev) => {
+              const el = ev.composedPath().find((e) => e && e.dataset && e.dataset.vz);
+              if (!el || el.disabled) return;
+              ev.preventDefault();
+              window.__vz2.act(el);
+            };
+            document.addEventListener('pointerdown', (ev) => { down = ev.pointerType === 'mouse' ? null : { x: ev.clientX, y: ev.clientY, t: Date.now() }; }, true);
+            document.addEventListener('pointerup', (ev) => {
+              if (ev.pointerType === 'mouse' || !down) return;
+              const ok = Math.hypot(ev.clientX - down.x, ev.clientY - down.y) < 10 && Date.now() - down.t < 700;
+              down = null;
+              if (ok) { lastTouch = Date.now(); handle(ev); }
+            }, true);
+            document.addEventListener('click', (ev) => { if (Date.now() - lastTouch < 800) return; handle(ev); }, true);
+            const inForm = (ev) => ev.composedPath().some((e) => e && e.classList && e.classList.contains('vz-keys'));
+            // button-card treats Space/Enter as a tap and swallows them; keep keys inside the inputs.
+            for (const type of ['keydown', 'keyup', 'keypress']) {
+              document.addEventListener(type, (ev) => { if (inForm(ev)) ev.stopPropagation(); }, true);
+            }
+            // open the native date picker on a tap anywhere in the field
+            document.addEventListener('click', (ev) => {
+              const t = ev.composedPath()[0];
+              if (!t || t.tagName !== 'INPUT' || t.type !== 'date' || !inForm(ev)) return;
+              try { t.showPicker(); } catch (e) { /* already open */ }
+            }, true);
+          }
+
+          const at = (states['sensor.vriezer_voorraad'] || {}).attributes;
+          if (!at || !at.pakjes) return "<style>\n  .vz{text-align:left;font-size:14px;line-height:1.4;white-space:normal}\n  .vz button{font:inherit;font-size:13px;border:1px solid var(--divider-color);background:var(--card-background-color);\n    color:var(--primary-text-color);border-radius:8px;padding:6px 11px;cursor:pointer}\n  .vz button.pri{background:var(--primary-color);border-color:var(--primary-color);color:#fff}\n  .vz button.arm{background:var(--error-color,#c62828);border-color:var(--error-color,#c62828);color:#fff}\n  .vz button[disabled]{opacity:.6}\n  .vz label{display:block;font-size:12px;color:var(--secondary-text-color);margin:8px 0 2px}\n  .vz input,.vz select{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:8px;\n    border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color)}\n  .vz input[type=date]{cursor:pointer}\n  .vz-row{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}\n  .vz-b{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}\n  .vz-status{margin-top:8px;font-size:13px;min-height:1em}\n  .vz-status:empty{display:none}\n  .vz-status.err{color:var(--error-color,#c62828)}\n  .vz-status.ok{color:var(--success-color,#2e7d32)}\n  .vz-s{color:var(--secondary-text-color);font-size:13px}\n  .vz-empty{color:var(--secondary-text-color);font-size:13px}\n  .vz-h{font-weight:600;font-size:15px;margin:14px 0 4px}\n  .vz-h:first-child{margin-top:0}\n  .vz-h span{font-weight:400;color:var(--secondary-text-color);font-size:13px}\n  table.vz-t{width:100%;border-collapse:collapse;font-size:13px}\n  .vz-t td{padding:4px 6px 4px 0;border-top:1px solid var(--divider-color);vertical-align:top}\n  .vz-t td.n{font-weight:500}\n  .vz-t td.o{color:var(--secondary-text-color);white-space:nowrap}\n  .late{color:var(--error-color,#c62828) !important}\n  .vz-q{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--divider-color)}\n  .vz-q .n{flex:1}\n  .vz-q code,.vz-pk code{font-size:12px;background:var(--secondary-background-color,#f1f1f1);border-radius:6px;padding:1px 6px}\n  .vz-pk{border-top:1px solid var(--divider-color)}\n  .vz-pk .top{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer}\n  .vz-pk .top .n{flex:1}\n  .vz-pk .top .q{color:var(--secondary-text-color);white-space:nowrap}\n  .vz-pk .more,.vz-pk .ed{display:none;padding:2px 0 12px}\n  .vz-pk.open .more{display:block}\n  .vz-pk.open.editing .ed{display:block}\n  .vz-pk.open{background:var(--secondary-background-color,#f6f6f6);margin:0 -10px;padding:0 10px;border-radius:10px}\n  .vz-part{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}\n  .vz-part input{flex:1;min-width:90px;width:auto}\n  .vz-badge{font-size:11px;border-radius:8px;padding:1px 7px;background:#fff3cd;color:#7a5b00;margin-left:4px;white-space:nowrap}\n  .vz details summary{cursor:pointer;color:var(--secondary-text-color);margin-top:14px}\n</style>" + '<div class="vz vz-empty">De integratie Vriezer is (nog) niet geladen.</div>';
+          const todo = at.pakjes.filter((p) => !p.geprint);
+          let out = '';
+          if (!todo.length) {
+            out += '<div class="vz-empty">Alle labels zijn geprint. Nieuwe pakjes komen hier eerst te staan.</div>';
+          } else {
+            out += todo.map((p) => `<div class="vz-q"><code>${esc(p.code)}</code><span class="n">${esc(p.naam)}` +
+              `${p.hoeveelheid ? ' <span class="vz-s">' + esc(p.hoeveelheid) + '</span>' : ''}</span>` +
+              `<button data-vz="print" data-code="${esc(p.code)}">Print</button>` +
+              `<button data-vz="skip" data-code="${esc(p.code)}" title="Niet printen">×</button></div>`).join('');
+            out += `<div class="vz-b"><button class="pri" data-vz="print-all">Print ${todo.length === 1 ? 'label' : 'alle ' + todo.length + ' labels'}</button></div>`;
+          }
+          if (!at.labelprinter) out += '<div class="vz-s" style="margin-top:6px">Geen labelprinter ingesteld: printen vuurt alleen de gebeurtenis vriezer_label af.</div>';
+          return "<style>\n  .vz{text-align:left;font-size:14px;line-height:1.4;white-space:normal}\n  .vz button{font:inherit;font-size:13px;border:1px solid var(--divider-color);background:var(--card-background-color);\n    color:var(--primary-text-color);border-radius:8px;padding:6px 11px;cursor:pointer}\n  .vz button.pri{background:var(--primary-color);border-color:var(--primary-color);color:#fff}\n  .vz button.arm{background:var(--error-color,#c62828);border-color:var(--error-color,#c62828);color:#fff}\n  .vz button[disabled]{opacity:.6}\n  .vz label{display:block;font-size:12px;color:var(--secondary-text-color);margin:8px 0 2px}\n  .vz input,.vz select{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:8px;\n    border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color)}\n  .vz input[type=date]{cursor:pointer}\n  .vz-row{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}\n  .vz-b{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}\n  .vz-status{margin-top:8px;font-size:13px;min-height:1em}\n  .vz-status:empty{display:none}\n  .vz-status.err{color:var(--error-color,#c62828)}\n  .vz-status.ok{color:var(--success-color,#2e7d32)}\n  .vz-s{color:var(--secondary-text-color);font-size:13px}\n  .vz-empty{color:var(--secondary-text-color);font-size:13px}\n  .vz-h{font-weight:600;font-size:15px;margin:14px 0 4px}\n  .vz-h:first-child{margin-top:0}\n  .vz-h span{font-weight:400;color:var(--secondary-text-color);font-size:13px}\n  table.vz-t{width:100%;border-collapse:collapse;font-size:13px}\n  .vz-t td{padding:4px 6px 4px 0;border-top:1px solid var(--divider-color);vertical-align:top}\n  .vz-t td.n{font-weight:500}\n  .vz-t td.o{color:var(--secondary-text-color);white-space:nowrap}\n  .late{color:var(--error-color,#c62828) !important}\n  .vz-q{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--divider-color)}\n  .vz-q .n{flex:1}\n  .vz-q code,.vz-pk code{font-size:12px;background:var(--secondary-background-color,#f1f1f1);border-radius:6px;padding:1px 6px}\n  .vz-pk{border-top:1px solid var(--divider-color)}\n  .vz-pk .top{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer}\n  .vz-pk .top .n{flex:1}\n  .vz-pk .top .q{color:var(--secondary-text-color);white-space:nowrap}\n  .vz-pk .more,.vz-pk .ed{display:none;padding:2px 0 12px}\n  .vz-pk.open .more{display:block}\n  .vz-pk.open.editing .ed{display:block}\n  .vz-pk.open{background:var(--secondary-background-color,#f6f6f6);margin:0 -10px;padding:0 10px;border-radius:10px}\n  .vz-part{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}\n  .vz-part input{flex:1;min-width:90px;width:auto}\n  .vz-badge{font-size:11px;border-radius:8px;padding:1px 7px;background:#fff3cd;color:#7a5b00;margin-left:4px;white-space:nowrap}\n  .vz details summary{cursor:pointer;color:var(--secondary-text-color);margin-top:14px}\n</style>" + `<div class="vz">${out}${vz.msgHtml('queue')}</div>`;
+          ]]]
+      styles:
+        card:
+        - padding: 12px 16px 14px
+        - pointer-events: auto
+        - cursor: default
+        grid:
+        - grid-template-areas: '"wachtrij"'
+        - grid-template-columns: 1fr
+        custom_fields:
+          wachtrij:
+          - width: 100%
+      grid_options:
+        columns: full
+        rows: auto
+  - type: grid
+    cards:
+    - type: heading
+      heading: In de vriezer
+      icon: mdi:snowflake
+      heading_style: title
+    - type: custom:button-card
+      triggers_update:
+      - sensor.vriezer_voorraad
+      show_name: false
+      show_icon: false
+      show_state: false
+      tap_action:
+        action: none
+      hold_action:
+        action: none
+      custom_fields:
+        voorraad: |-
+          [[[
+
+          const vz = window.__vz2 = window.__vz2 || { open: null, edit: null, msg: {} };
+          const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+          vz.esc = esc;
+          vz.nl = (d) => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '';
+          vz.hm = () => new Date().toTimeString().slice(0, 5);
+          vz.hass = () => document.querySelector('home-assistant').hass;
+          vz.call = (service, data) => vz.hass().connection.sendMessagePromise({
+            type: 'call_service', domain: 'vriezer', service, service_data: data, return_response: true,
+          }).then((r) => r.response || { ok: true }, (e) => ({ ok: false, fout: e.message || String(e) }));
+          vz.msgHtml = (key) => {
+            const m = vz.msg[key];
+            if (!m || Date.now() - m.t > 10 * 60000) return '<div class="vz-status"></div>';
+            return `<div class="vz-status ${m.ok ? 'ok' : 'err'}">${esc(m.text)}</div>`;
+          };
+          vz.say = (el, key, text, ok) => {
+            vz.msg[key] = { text, ok, t: Date.now() };
+            const root = el.getRootNode();
+            const s = root.querySelector && root.querySelector('.vz-status');
+            if (s) { s.textContent = text; s.className = 'vz-status ' + (ok ? 'ok' : 'err'); }
+          };
+          vz.arm = (el, label) => {
+            if (Date.now() - Number(el.dataset.armed || 0) < 4000) return true;
+            el.dataset.armed = Date.now(); el.textContent = 'Zeker?'; el.classList.add('arm');
+            setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = label; el.classList.remove('arm'); } }, 4000);
+            return false;
+          };
+          vz.act = async (el) => {
+            const a = el.dataset.vz;
+            const code = el.dataset.code;
+            const row = el.closest('.vz-pk');
+            if (a === 'add') {
+              const f = el.closest('.vz-form');
+              const v = (n) => f.querySelector(`[name=${n}]`).value.trim();
+              const data = { categorie: v('categorie'), naam: v('naam'), hoeveelheid: v('hoeveelheid'),
+                pakjes: Number(v('pakjes') || 1), ingevroren: v('ingevroren') };
+              vz.say(el, 'form', 'Bezig...', true);
+              const r = await vz.call('toevoegen', data);
+              if (!r.ok) { vz.say(el, 'form', r.fout || 'Toevoegen mislukt', false); return; }
+              for (const n of ['naam', 'hoeveelheid', 'ingevroren']) f.querySelector(`[name=${n}]`).value = '';
+              f.querySelector('[name=pakjes]').value = '1';
+              const codes = r.codes.length > 1 ? `${r.codes[0]} t/m ${r.codes[r.codes.length - 1]}` : r.codes[0];
+              vz.say(el, 'form', `Om ${vz.hm()} ${r.codes.length}x ${data.naam} toegevoegd (${codes}). Het label staat klaar bij Labels printen.`, true);
+              return;
+            }
+            if (a === 'print-all' || a === 'print' || a === 'reprint') {
+              const key = a === 'reprint' ? 'list' : 'queue';
+              const old = el.textContent; el.textContent = 'Bezig...'; el.disabled = true;
+              const r = await vz.call('labels_printen', code ? { codes: code } : {});
+              el.textContent = old; el.disabled = false;
+              vz.say(el, key, r.ok ? `Om ${vz.hm()} ${r.geprint.length} label${r.geprint.length === 1 ? '' : 's'} geprint` : r.fout, r.ok);
+              return;
+            }
+            if (a === 'skip') {
+              const r = await vz.call('uit_wachtrij', { codes: code });
+              if (!r.ok) vz.say(el, 'queue', r.fout, false);
+              return;
+            }
+            if (a === 'open') {
+              vz.open = vz.open === code ? null : code; vz.edit = null;
+              for (const r of el.getRootNode().querySelectorAll('.vz-pk')) {
+                r.classList.toggle('open', r.dataset.code === vz.open); r.classList.remove('editing');
+              }
+              return;
+            }
+            if (a === 'all-out') {
+              if (!vz.arm(el, 'Helemaal eruit')) return;
+              const r = await vz.call('uithalen', { code });
+              vz.say(el, 'list', r.ok ? `${code} is uit de vriezer` : r.fout, r.ok);
+              if (r.ok) vz.open = null;
+              return;
+            }
+            if (a === 'part' || a === 'rest') {
+              const val = row.querySelector('.vz-amount').value.trim();
+              if (!val) { vz.say(el, 'list', a === 'part' ? 'Vul in hoeveel je eruit haalt' : 'Vul in wat er overblijft', false); return; }
+              const r = await vz.call('uithalen', a === 'part' ? { code, hoeveelheid: val } : { code, rest: val });
+              vz.say(el, 'list', r.ok ? (r.op ? `${code} is op` : `${code}: nog ${r.over} over`) : r.fout, r.ok);
+              return;
+            }
+            if (a === 'edit') {
+              vz.edit = vz.edit === code ? null : code;
+              row.classList.toggle('editing', vz.edit === code);
+              return;
+            }
+            if (a === 'save-edit') {
+              const v = (n) => row.querySelector(`[name=${n}]`).value.trim();
+              const r = await vz.call('wijzigen', { code, naam: v('naam'), hoeveelheid: v('hoeveelheid'),
+                ingevroren: v('ingevroren'), op_voor: v('op_voor'), opmerking: v('opmerking') });
+              vz.say(el, 'list', r.ok ? `${code} opgeslagen` : r.fout, r.ok);
+              if (r.ok) vz.edit = null;
+              return;
+            }
+            if (a === 'wipe') {
+              if (!vz.arm(el, 'Wissen (vergissing)')) return;
+              const r = await vz.call('verwijderen', { code });
+              vz.say(el, 'list', r.ok ? `${code} gewist` : r.fout, r.ok);
+              return;
+            }
+            if (a === 'undo') {
+              const r = await vz.call('terugzetten', { code });
+              vz.say(el, 'list', r.ok ? `${code} staat weer in de vriezer` : r.fout, r.ok);
+              return;
+            }
+            if (a === 'bon') {
+              el.disabled = true;
+              const r = await vz.call('bon_printen', {});
+              el.disabled = false;
+              vz.say(el, 'list', r.ok ? `Om ${vz.hm()} overzicht naar de bonprinter gestuurd` : r.fout, r.ok);
+            }
+          };
+          if (!window.__vzF) {
+            // button-card blocks the default action of a tap, so a tapped field never gets focus on a
+            // phone. Focus it ourselves (and open the picker of a select or date field).
+            window.__vzF = true;
+            let d = null;
+            document.addEventListener('pointerdown', (ev) => { d = ev.pointerType === 'mouse' ? null : { x: ev.clientX, y: ev.clientY, t: Date.now() }; }, true);
+            document.addEventListener('pointerup', (ev) => {
+              if (ev.pointerType === 'mouse' || !d) return;
+              const ok = Math.hypot(ev.clientX - d.x, ev.clientY - d.y) < 10 && Date.now() - d.t < 700;
+              d = null;
+              const path = ev.composedPath();
+              const t = path[0];
+              if (!ok || !t || !['INPUT', 'SELECT', 'TEXTAREA'].includes(t.tagName)) return;
+              if (!path.some((e) => e && e.classList && e.classList.contains('vz'))) return;
+              t.focus();
+              if (t.tagName === 'SELECT' || t.type === 'date') { try { t.showPicker(); } catch (e) { /* not allowed */ } }
+            }, true);
+          }
+          if (!window.__vz2L) {
+            window.__vz2L = true;
+            let down = null; let lastTouch = 0;
+            const handle = (ev) => {
+              const el = ev.composedPath().find((e) => e && e.dataset && e.dataset.vz);
+              if (!el || el.disabled) return;
+              ev.preventDefault();
+              window.__vz2.act(el);
+            };
+            document.addEventListener('pointerdown', (ev) => { down = ev.pointerType === 'mouse' ? null : { x: ev.clientX, y: ev.clientY, t: Date.now() }; }, true);
+            document.addEventListener('pointerup', (ev) => {
+              if (ev.pointerType === 'mouse' || !down) return;
+              const ok = Math.hypot(ev.clientX - down.x, ev.clientY - down.y) < 10 && Date.now() - down.t < 700;
+              down = null;
+              if (ok) { lastTouch = Date.now(); handle(ev); }
+            }, true);
+            document.addEventListener('click', (ev) => { if (Date.now() - lastTouch < 800) return; handle(ev); }, true);
+            const inForm = (ev) => ev.composedPath().some((e) => e && e.classList && e.classList.contains('vz-keys'));
+            // button-card treats Space/Enter as a tap and swallows them; keep keys inside the inputs.
+            for (const type of ['keydown', 'keyup', 'keypress']) {
+              document.addEventListener(type, (ev) => { if (inForm(ev)) ev.stopPropagation(); }, true);
+            }
+            // open the native date picker on a tap anywhere in the field
+            document.addEventListener('click', (ev) => {
+              const t = ev.composedPath()[0];
+              if (!t || t.tagName !== 'INPUT' || t.type !== 'date' || !inForm(ev)) return;
+              try { t.showPicker(); } catch (e) { /* already open */ }
+            }, true);
+          }
+
+          const at = (states['sensor.vriezer_voorraad'] || {}).attributes;
+          if (!at || !at.pakjes) return "<style>\n  .vz{text-align:left;font-size:14px;line-height:1.4;white-space:normal}\n  .vz button{font:inherit;font-size:13px;border:1px solid var(--divider-color);background:var(--card-background-color);\n    color:var(--primary-text-color);border-radius:8px;padding:6px 11px;cursor:pointer}\n  .vz button.pri{background:var(--primary-color);border-color:var(--primary-color);color:#fff}\n  .vz button.arm{background:var(--error-color,#c62828);border-color:var(--error-color,#c62828);color:#fff}\n  .vz button[disabled]{opacity:.6}\n  .vz label{display:block;font-size:12px;color:var(--secondary-text-color);margin:8px 0 2px}\n  .vz input,.vz select{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:8px;\n    border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color)}\n  .vz input[type=date]{cursor:pointer}\n  .vz-row{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}\n  .vz-b{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}\n  .vz-status{margin-top:8px;font-size:13px;min-height:1em}\n  .vz-status:empty{display:none}\n  .vz-status.err{color:var(--error-color,#c62828)}\n  .vz-status.ok{color:var(--success-color,#2e7d32)}\n  .vz-s{color:var(--secondary-text-color);font-size:13px}\n  .vz-empty{color:var(--secondary-text-color);font-size:13px}\n  .vz-h{font-weight:600;font-size:15px;margin:14px 0 4px}\n  .vz-h:first-child{margin-top:0}\n  .vz-h span{font-weight:400;color:var(--secondary-text-color);font-size:13px}\n  table.vz-t{width:100%;border-collapse:collapse;font-size:13px}\n  .vz-t td{padding:4px 6px 4px 0;border-top:1px solid var(--divider-color);vertical-align:top}\n  .vz-t td.n{font-weight:500}\n  .vz-t td.o{color:var(--secondary-text-color);white-space:nowrap}\n  .late{color:var(--error-color,#c62828) !important}\n  .vz-q{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--divider-color)}\n  .vz-q .n{flex:1}\n  .vz-q code,.vz-pk code{font-size:12px;background:var(--secondary-background-color,#f1f1f1);border-radius:6px;padding:1px 6px}\n  .vz-pk{border-top:1px solid var(--divider-color)}\n  .vz-pk .top{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer}\n  .vz-pk .top .n{flex:1}\n  .vz-pk .top .q{color:var(--secondary-text-color);white-space:nowrap}\n  .vz-pk .more,.vz-pk .ed{display:none;padding:2px 0 12px}\n  .vz-pk.open .more{display:block}\n  .vz-pk.open.editing .ed{display:block}\n  .vz-pk.open{background:var(--secondary-background-color,#f6f6f6);margin:0 -10px;padding:0 10px;border-radius:10px}\n  .vz-part{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}\n  .vz-part input{flex:1;min-width:90px;width:auto}\n  .vz-badge{font-size:11px;border-radius:8px;padding:1px 7px;background:#fff3cd;color:#7a5b00;margin-left:4px;white-space:nowrap}\n  .vz details summary{cursor:pointer;color:var(--secondary-text-color);margin-top:14px}\n</style>" + '<div class="vz vz-empty">De integratie Vriezer is (nog) niet geladen.</div>';
+          // deep link from a scan notification: ?vriezer=V-0004 opens that package once
+          const want = new URLSearchParams(location.search).get('vriezer');
+          if (want && vz.linked !== want) {
+            vz.linked = want; vz.open = want.toUpperCase();
+            setTimeout(() => { const r = this.shadowRoot && this.shadowRoot.querySelector(`.vz-pk[data-code="${vz.open}"]`); if (r) r.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 400);
+          }
+          const today = new Date().toISOString().slice(0, 10);
+          const short = (d) => d ? `${d.slice(8, 10)}-${d.slice(5, 7)}` : '';
+          const fmt = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
+          let out = '';
+          // 1. totals per product
+          for (const cat of at.categorieen) {
+            const items = at.pakjes.filter((p) => p.categorie === cat);
+            const groups = {};
+            for (const p of items) {
+              const g = groups[p.naam.toLowerCase()] = groups[p.naam.toLowerCase()] || { naam: p.naam, n: 0, sums: {}, oldest: null };
+              g.n += 1;
+              if (p.getal != null) g.sums[p.eenheid] = (g.sums[p.eenheid] || 0) + p.getal;
+              if (!g.oldest || p.op_voor < g.oldest.op_voor) g.oldest = p;
+            }
+            const rows = Object.values(groups).sort((a, b) => a.naam.localeCompare(b.naam, 'nl'));
+            out += `<div class="vz-h">${esc(cat)} <span>${items.length} pakje${items.length === 1 ? '' : 's'}</span></div>`;
+            if (!rows.length) { out += '<div class="vz-empty">Leeg</div>'; continue; }
+            out += '<table class="vz-t">' + rows.map((g) => {
+              const tot = Object.entries(g.sums).map(([u, v]) => `${fmt(v)} ${esc(u)}`.trim()).join(' + ');
+              const late = g.oldest.op_voor < today;
+              return `<tr><td class="n">${esc(g.naam)}</td><td>${g.n}x</td><td>${tot}</td>` +
+                `<td class="o${late ? ' late' : ''}">eerst ${esc(g.oldest.code)}, op voor ${short(g.oldest.op_voor)}</td></tr>`;
+            }).join('') + '</table>';
+          }
+          // 2. every package, tap to take it out
+          out += '<div class="vz-h" style="margin-top:18px">Pakjes <span>tik om eruit te halen</span></div>';
+          const sorted = [...at.pakjes].sort((a, b) => a.op_voor.localeCompare(b.op_voor) || a.naam.localeCompare(b.naam, 'nl'));
+          if (!sorted.length) out += '<div class="vz-empty">De vriezer is leeg.</div>';
+          for (const p of sorted) {
+            const late = p.op_voor < today;
+            const c = esc(p.code);
+            out += `<div class="vz-pk${vz.open === p.code ? ' open' : ''}${vz.open === p.code && vz.edit === p.code ? ' editing' : ''}" data-code="${c}">
+              <div class="top" data-vz="open" data-code="${c}"><code>${c}</code><span class="n">${esc(p.naam)}${p.geprint ? '' : '<span class="vz-badge">label nog printen</span>'}</span>
+                <span class="q">${esc(p.hoeveelheid)}</span><span class="q${late ? ' late' : ''}">${short(p.op_voor)}</span></div>
+              <div class="more vz-keys">
+                <div class="vz-s">${esc(p.categorie)} · ingevroren ${vz.nl(p.ingevroren)} · op voor <span class="${late ? 'late' : ''}">${vz.nl(p.op_voor)}</span>` +
+                `${p.begin && p.begin !== p.hoeveelheid ? ' · was ' + esc(p.begin) : ''}${p.opmerking ? ' · ' + esc(p.opmerking) : ''}</div>
+                <div class="vz-b"><button class="pri" data-vz="all-out" data-code="${c}">Helemaal eruit</button>
+                  <button data-vz="reprint" data-code="${c}">Label printen</button><button data-vz="edit" data-code="${c}">Wijzigen</button></div>` +
+                (p.getal != null ? `<div class="vz-part"><input class="vz-amount" placeholder="bv. 200 g" autocomplete="off">` +
+                  `<button data-vz="part" data-code="${c}">Haal eruit</button><button data-vz="rest" data-code="${c}">Blijft over</button></div>`
+                  : '<div class="vz-s" style="margin-top:6px">Geen hoeveelheid bekend; vul die in bij Wijzigen om een deel eruit te halen.</div>') + `
+                <div class="ed">
+                  <label>Naam</label><input name="naam" value="${esc(p.naam)}" autocomplete="off">
+                  <div class="vz-row"><div><label>Hoeveelheid nu</label><input name="hoeveelheid" value="${esc(p.hoeveelheid)}" placeholder="bv. 300 g" autocomplete="off"></div>
+                    <div><label>Opmerking</label><input name="opmerking" value="${esc(p.opmerking)}" autocomplete="off"></div></div>
+                  <div class="vz-row"><div><label>Ingevroren op</label><input name="ingevroren" type="date" value="${esc(p.ingevroren)}"></div>
+                    <div><label>Op voor</label><input name="op_voor" type="date" value="${esc(p.op_voor)}"></div></div>
+                  <div class="vz-b"><button class="pri" data-vz="save-edit" data-code="${c}">Opslaan</button><button data-vz="wipe" data-code="${c}">Wissen (vergissing)</button></div>
+                </div>
+              </div></div>`;
+          }
+          if (at.recent_uit && at.recent_uit.length) {
+            out += `<details><summary>Laatst uitgehaald (${at.recent_uit.length})</summary>` + at.recent_uit.map((p) =>
+              `<div class="vz-q"><code>${esc(p.code)}</code><span class="n">${esc(p.naam)} <span class="vz-s">${vz.nl(p.uit.slice(0, 10))}</span></span>` +
+              `<button data-vz="undo" data-code="${esc(p.code)}">Terugzetten</button></div>`).join('') + '</details>';
+          }
+          if (at.bonprinter) out += '<div class="vz-b" style="margin-top:14px"><button data-vz="bon">Overzicht op bon printen</button></div>';
+          return "<style>\n  .vz{text-align:left;font-size:14px;line-height:1.4;white-space:normal}\n  .vz button{font:inherit;font-size:13px;border:1px solid var(--divider-color);background:var(--card-background-color);\n    color:var(--primary-text-color);border-radius:8px;padding:6px 11px;cursor:pointer}\n  .vz button.pri{background:var(--primary-color);border-color:var(--primary-color);color:#fff}\n  .vz button.arm{background:var(--error-color,#c62828);border-color:var(--error-color,#c62828);color:#fff}\n  .vz button[disabled]{opacity:.6}\n  .vz label{display:block;font-size:12px;color:var(--secondary-text-color);margin:8px 0 2px}\n  .vz input,.vz select{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:8px;\n    border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color)}\n  .vz input[type=date]{cursor:pointer}\n  .vz-row{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}\n  .vz-b{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}\n  .vz-status{margin-top:8px;font-size:13px;min-height:1em}\n  .vz-status:empty{display:none}\n  .vz-status.err{color:var(--error-color,#c62828)}\n  .vz-status.ok{color:var(--success-color,#2e7d32)}\n  .vz-s{color:var(--secondary-text-color);font-size:13px}\n  .vz-empty{color:var(--secondary-text-color);font-size:13px}\n  .vz-h{font-weight:600;font-size:15px;margin:14px 0 4px}\n  .vz-h:first-child{margin-top:0}\n  .vz-h span{font-weight:400;color:var(--secondary-text-color);font-size:13px}\n  table.vz-t{width:100%;border-collapse:collapse;font-size:13px}\n  .vz-t td{padding:4px 6px 4px 0;border-top:1px solid var(--divider-color);vertical-align:top}\n  .vz-t td.n{font-weight:500}\n  .vz-t td.o{color:var(--secondary-text-color);white-space:nowrap}\n  .late{color:var(--error-color,#c62828) !important}\n  .vz-q{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--divider-color)}\n  .vz-q .n{flex:1}\n  .vz-q code,.vz-pk code{font-size:12px;background:var(--secondary-background-color,#f1f1f1);border-radius:6px;padding:1px 6px}\n  .vz-pk{border-top:1px solid var(--divider-color)}\n  .vz-pk .top{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer}\n  .vz-pk .top .n{flex:1}\n  .vz-pk .top .q{color:var(--secondary-text-color);white-space:nowrap}\n  .vz-pk .more,.vz-pk .ed{display:none;padding:2px 0 12px}\n  .vz-pk.open .more{display:block}\n  .vz-pk.open.editing .ed{display:block}\n  .vz-pk.open{background:var(--secondary-background-color,#f6f6f6);margin:0 -10px;padding:0 10px;border-radius:10px}\n  .vz-part{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}\n  .vz-part input{flex:1;min-width:90px;width:auto}\n  .vz-badge{font-size:11px;border-radius:8px;padding:1px 7px;background:#fff3cd;color:#7a5b00;margin-left:4px;white-space:nowrap}\n  .vz details summary{cursor:pointer;color:var(--secondary-text-color);margin-top:14px}\n</style>" + `<div class="vz">${vz.msgHtml('list')}${out}</div>`;
+          ]]]
+      styles:
+        card:
+        - padding: 12px 16px 14px
+        - pointer-events: auto
+        - cursor: default
+        grid:
+        - grid-template-areas: '"voorraad"'
+        - grid-template-columns: 1fr
+        custom_fields:
+          voorraad:
+          - width: 100%
+      grid_options:
+        columns: full
+        rows: auto

@@ -1,0 +1,140 @@
+toevoegen:
+  fields:
+    categorie:
+      example: Vlees
+      selector:
+        text:
+    naam:
+      example: Rundergehakt
+      selector:
+        text:
+    hoeveelheid:
+      example: 400 g
+      selector:
+        text:
+    regel:
+      example: Rundergehakt - 400 g
+      selector:
+        text:
+    pakjes:
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 50
+          mode: box
+    ingevroren:
+      selector:
+        date:
+    op_voor:
+      selector:
+        date:
+    opmerking:
+      selector:
+        text:
+    printen:
+      default: false
+      selector:
+        boolean:
+van_boodschappenlijst:
+  fields:
+    entity_id:
+      required: true
+      example: todo.slager
+      selector:
+        entity:
+          domain: todo
+    uid:
+      required: true
+      selector:
+        text:
+    categorie:
+      example: Vlees
+      selector:
+        text:
+    pakjes:
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 50
+          mode: box
+    printen:
+      default: false
+      selector:
+        boolean:
+uithalen:
+  fields:
+    code:
+      required: true
+      example: V-0004
+      selector:
+        text:
+    hoeveelheid:
+      example: 200 g
+      selector:
+        text:
+    rest:
+      example: 200 g
+      selector:
+        text:
+terugzetten:
+  fields:
+    code:
+      required: true
+      example: V-0004
+      selector:
+        text:
+wijzigen:
+  fields:
+    code:
+      required: true
+      example: V-0004
+      selector:
+        text:
+    naam:
+      selector:
+        text:
+    hoeveelheid:
+      selector:
+        text:
+    ingevroren:
+      selector:
+        date:
+    op_voor:
+      selector:
+        date:
+    opmerking:
+      selector:
+        text:
+verwijderen:
+  fields:
+    code:
+      required: true
+      example: V-0004
+      selector:
+        text:
+labels_printen:
+  fields:
+    codes:
+      example: V-0004, V-0005
+      selector:
+        text:
+uit_wachtrij:
+  fields:
+    codes:
+      selector:
+        text:
+bon_printen:
+  fields:
+    categorie:
+      selector:
+        text:
+importeren:
+  fields:
+    lijsten:
+      required: true
+      example: '[{"entity_id": "todo.vriezer_vlees", "categorie": "Vlees"}]'
+      selector:
+        object:
+lijst:
