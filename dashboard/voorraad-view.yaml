@@ -1005,7 +1005,14 @@
           vz.link();
           setTimeout(() => vz.filter(), 0);
           const today = new Date().toISOString().slice(0, 10);
-          const short = (d) => d ? `${d.slice(8, 10)}-${d.slice(5, 7)}` : '';
+          // day-month when the date is this year or within 8 months, otherwise only the year
+          const soon = new Date(); soon.setMonth(soon.getMonth() + 8);
+          const soonIso = soon.toISOString().slice(0, 10);
+          const short = (d) => {
+            if (!d) return '';
+            if (d.slice(0, 4) === today.slice(0, 4) || d <= soonIso) return `${d.slice(8, 10)}-${d.slice(5, 7)}`;
+            return d.slice(0, 4);
+          };
           const fmt = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
           const key = (p) => `${p.product} ${p.omschrijving} ${p.code} ${p.categorie}`.toLowerCase();
           let out = '<div class="vz-grid">';
