@@ -1,4 +1,4 @@
-"""Freezer inventory: packages with a unique code and label, partial removal, QR scans."""
+"""Voorraadbeheer: inventory per location, a code and label per package, partial removal."""
 
 from __future__ import annotations
 
@@ -25,19 +25,18 @@ PLATFORMS = [Platform.SENSOR]
 
 CODES = vol.Any(cv.string, [cv.string])
 TEXT = vol.Any(None, cv.string, vol.Coerce(str))
+COUNT = vol.All(vol.Coerce(int), vol.Range(min=1, max=50))
 
 ADD_SCHEMA = vol.Schema(
     {
         vol.Optional("categorie"): TEXT,
-        vol.Optional("naam"): TEXT,
+        vol.Optional("product"): TEXT,
+        vol.Optional("omschrijving"): TEXT,
         vol.Optional("hoeveelheid"): TEXT,
         vol.Optional("regel"): TEXT,
-        vol.Optional("pakjes", default=1): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=50)
-        ),
+        vol.Optional("pakjes", default=1): COUNT,
         vol.Optional("ingevroren"): TEXT,
-        vol.Optional("op_voor"): TEXT,
-        vol.Optional("opmerking"): TEXT,
+        vol.Optional("houdbaar_tot"): TEXT,
         vol.Optional("printen", default=False): cv.boolean,
     }
 )
@@ -46,9 +45,9 @@ SHOPPING_SCHEMA = vol.Schema(
         vol.Required("entity_id"): cv.entity_id,
         vol.Required("uid"): cv.string,
         vol.Optional("categorie"): TEXT,
-        vol.Optional("pakjes", default=1): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=50)
-        ),
+        vol.Optional("omschrijving"): TEXT,
+        vol.Optional("pakjes", default=1): COUNT,
+        vol.Optional("houdbaar_tot"): TEXT,
         vol.Optional("printen", default=False): cv.boolean,
     }
 )
@@ -63,15 +62,17 @@ CODE_SCHEMA = vol.Schema({vol.Required("code"): cv.string})
 UPDATE_SCHEMA = vol.Schema(
     {
         vol.Required("code"): cv.string,
-        vol.Optional("naam"): TEXT,
+        vol.Optional("product"): TEXT,
+        vol.Optional("omschrijving"): TEXT,
         vol.Optional("hoeveelheid"): TEXT,
+        vol.Optional("categorie"): TEXT,
         vol.Optional("ingevroren"): TEXT,
-        vol.Optional("op_voor"): TEXT,
-        vol.Optional("opmerking"): TEXT,
+        vol.Optional("houdbaar_tot"): TEXT,
     }
 )
 PRINT_SCHEMA = vol.Schema({vol.Optional("codes"): CODES})
-RECEIPT_SCHEMA = vol.Schema({vol.Optional("categorie"): TEXT})
+RECEIPT_SCHEMA = vol.Schema({vol.Optional("locatie"): TEXT})
+PRODUCT_SCHEMA = vol.Schema({vol.Required("product"): cv.string})
 IMPORT_SCHEMA = vol.Schema(
     {
         vol.Required("lijsten"): [
@@ -95,6 +96,7 @@ SERVICES = (
     "labels_printen",
     "uit_wachtrij",
     "bon_printen",
+    "product_vergeten",
     "importeren",
     "lijst",
 )
@@ -136,28 +138,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def add_and_maybe_print(codes: list[str], printen: bool) -> dict[str, Any]:
         result: dict[str, Any] = {"codes": codes}
         if printen:
-            printed = await manager.print_labels(codes)
+            printed = await manager.print_labels(
+                [c for c in codes if not manager.get(c)["geprint"]] or codes
+            )
             result.update(printed)
         return result
 
     async def toevoegen(call: ServiceCall) -> dict[str, Any]:
         d = call.data
-        name, amount = d.get("naam"), d.get("hoeveelheid")
+        product, amount = d.get("product"), d.get("hoeveelheid")
         if d.get("regel"):
-            name, amount = split_line(d["regel"])
+            product, amount = split_line(d["regel"])
         codes = manager.add(
             d.get("categorie"),
-            name,
+            product,
+            d.get("omschrijving") or "",
             amount or "",
             d["pakjes"],
             d.get("ingevroren"),
-            d.get("op_voor"),
-            d.get("opmerking") or "",
+            d.get("houdbaar_tot"),
         )
         return await add_and_maybe_print(codes, d["printen"])
 
     async def van_boodschappenlijst(call: ServiceCall) -> dict[str, Any]:
-        """Endpoint for a shopping list: put one item in the freezer and tick it off."""
+        """Endpoint for a shopping list: put one line in the inventory and tick it off."""
         d = call.data
         entity_id = d["entity_id"]
         result = await hass.services.async_call(
@@ -172,34 +176,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         item = next((i for i in items if i.get("uid") == d["uid"]), None)
         if item is None:
             raise ServiceValidationError("Die regel staat niet (meer) op de lijst")
-        if "naar vriezer" in (item.get("description") or ""):
-            raise ServiceValidationError(f"{item['summary']} is al naar de vriezer")
-        name, amount = split_line(item["summary"])
+        if (item.get("description") or "").startswith("naar "):
+            raise ServiceValidationError(
+                f"{item['summary']} is al in de voorraad gezet"
+            )
+        cat = manager.category(d.get("categorie"))
+        product, amount = split_line(item["summary"])
+        args = (
+            d.get("omschrijving") or "",
+            amount,
+            d["pakjes"],
+            None,
+            d.get("houdbaar_tot"),
+        )
         try:
+            codes = manager.add(cat["naam"], product, *args, source=entity_id)
+        except ServiceValidationError as err:
+            if "Hoeveelheid" not in str(err):
+                raise
+            # amount not understood: keep the whole line as the product
             codes = manager.add(
-                d.get("categorie"), name, amount, d["pakjes"], source=entity_id
+                cat["naam"], item["summary"], args[0], "", *args[2:], source=entity_id
             )
-        except ServiceValidationError:
-            # amount not understood: keep the whole line as the name
-            codes = manager.add(
-                d.get("categorie"), item["summary"], "", d["pakjes"], source=entity_id
-            )
+        where = manager.location_of(cat)["naam"].lower()
         await hass.services.async_call(
             "todo",
             "update_item",
             {
                 "item": d["uid"],
                 "status": "completed",
-                "description": "naar vriezer "
-                + dt_util.now().strftime("%d/%m/%Y")
-                + " ("
-                + ", ".join(codes)
-                + ")",
+                "description": f"naar {where} {dt_util.now().strftime('%d/%m/%Y')} ({', '.join(codes)})",
             },
             target={"entity_id": entity_id},
             blocking=True,
         )
-        return {**await add_and_maybe_print(codes, d["printen"]), "naam": name}
+        return {**await add_and_maybe_print(codes, d["printen"]), "product": product}
 
     async def uithalen(call: ServiceCall) -> dict[str, Any]:
         d = call.data
@@ -226,13 +237,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def uit_wachtrij(call: ServiceCall) -> dict[str, Any]:
         codes = _codes(call.data.get("codes")) or [
-            p["code"] for p in manager.data["pakjes"].values() if not p["geprint"]
+            p["code"]
+            for p in manager.data["pakjes"].values()
+            if not p["geprint"] and not p["uit"]
         ]
         manager.set_printed(codes)
         return {"codes": codes}
 
     async def bon_printen(call: ServiceCall) -> dict[str, Any]:
-        return {"tekst": await manager.print_receipt(call.data.get("categorie"))}
+        return {"tekst": await manager.print_receipt(call.data.get("locatie"))}
+
+    async def product_vergeten(call: ServiceCall) -> dict[str, Any]:
+        manager.forget_product(call.data["product"])
+        return {}
 
     async def importeren(call: ServiceCall) -> dict[str, Any]:
         return await manager.import_todo(call.data["lijsten"])
@@ -250,6 +267,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "labels_printen": (labels_printen, PRINT_SCHEMA),
         "uit_wachtrij": (uit_wachtrij, PRINT_SCHEMA),
         "bon_printen": (bon_printen, RECEIPT_SCHEMA),
+        "product_vergeten": (product_vergeten, PRODUCT_SCHEMA),
         "importeren": (importeren, IMPORT_SCHEMA),
     }
     for name, (func, schema) in handlers.items():

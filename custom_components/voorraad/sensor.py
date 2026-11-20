@@ -1,4 +1,4 @@
-"""Overview sensor: packages in the freezer, the full list as attributes for the dashboard."""
+"""Overview sensor: number of packages in stock, the full lists as attributes for the dashboard."""
 
 from __future__ import annotations
 
@@ -21,17 +21,26 @@ async def async_setup_entry(
 
 
 class StockSensor(SensorEntity):
-    """State = number of packages in the freezer."""
+    """State = number of packages in stock."""
 
     _attr_has_entity_name = False
-    _attr_name = "Vriezer voorraad"
-    _attr_unique_id = "vriezer_voorraad"
-    _attr_icon = "mdi:fridge-outline"
+    _attr_name = "Voorraad"
+    _attr_unique_id = "voorraad"
+    _attr_icon = "mdi:archive-outline"
     _attr_should_poll = False
-    _attr_native_unit_of_measurement = "pakjes"
+    _attr_native_unit_of_measurement = "stuks"
     # the lists change often and are large: keep them out of the recorder
     _unrecorded_attributes = frozenset(
-        {"pakjes", "recent_uit", "categorieen", "qr", "labelprinter", "bonprinter"}
+        {
+            "pakjes",
+            "recent_uit",
+            "locaties",
+            "categorieen",
+            "producten",
+            "qr",
+            "labelprinter",
+            "bonprinter",
+        }
     )
 
     def __init__(self, manager: Manager) -> None:

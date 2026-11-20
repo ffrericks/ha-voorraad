@@ -1,0 +1,259 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Voorraadbeheer",
+        "description": "Voorraad per locatie (vriezer, koelkast, kelder ...) met een code en eventueel een label per stuk. Locaties, categorieën, QR-codes en printers stel je daarna in via Configureren. Staat de oude integratie Vriezer er nog, dan worden de instellingen en de voorraad overgenomen."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Voorraadbeheer is al ingesteld."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Voorraadbeheer instellen",
+        "menu_options": {
+          "algemeen": "Algemeen (QR-codes, scannen, meldingen)",
+          "locatie_toevoegen": "Locatie toevoegen",
+          "locatie_kiezen": "Locatie wijzigen",
+          "locatie_verwijderen": "Locatie verwijderen",
+          "categorie_toevoegen": "Categorie toevoegen",
+          "categorie_kiezen": "Categorie wijzigen",
+          "categorie_verwijderen": "Categorie verwijderen",
+          "labelprinter": "Labelprinter",
+          "bonprinter": "Bonprinter"
+        }
+      },
+      "algemeen": {
+        "title": "Algemeen",
+        "data": {
+          "qr": "QR-code op labels",
+          "melden_aan": "Telefoon voor meldingen na een scan",
+          "dashboard": "Dashboard-pad voor Openen",
+          "bij_scannen": "Bij scannen"
+        },
+        "data_description": {
+          "qr": "Zet een QR-code op het label (per categorie aan of uit te zetten). Scan je hem met de telefoon met de HA-app, dan opent de pagina of komt er een melding.",
+          "melden_aan": "Normaal gaat de melding naar de telefoon die scant. Kies hier een telefoon als dat niet lukt.",
+          "dashboard": "Bijvoorbeeld /lovelace/voorraad. Leeg = geen knop Openen.",
+          "bij_scannen": "Pagina openen werkt alleen met de Android-app; op een iPhone komt altijd de melding. Een melding negeren verandert niets."
+        }
+      },
+      "locatie_toevoegen": {
+        "title": "Locatie toevoegen",
+        "data": {
+          "naam": "Naam",
+          "invriezen": "Dit is een vriezer"
+        },
+        "data_description": {
+          "naam": "Bijvoorbeeld Vriezer, Koelkast, Kelder, Voorraadkast.",
+          "invriezen": "Aan: de datum is de invriesdatum plus de houdbare dagen van de categorie. Uit: bij elk product vul je de houdbaarheidsdatum (THT) in."
+        }
+      },
+      "locatie_kiezen": {
+        "title": "Locatie wijzigen",
+        "data": { "locatie": "Locatie" }
+      },
+      "locatie_wijzigen": {
+        "title": "Locatie wijzigen",
+        "data": {
+          "naam": "Naam",
+          "invriezen": "Dit is een vriezer"
+        }
+      },
+      "locatie_verwijderen": {
+        "title": "Locatie verwijderen",
+        "description": "Kan alleen als geen enkele categorie deze locatie gebruikt.",
+        "data": { "locatie": "Locatie" }
+      },
+      "categorie_toevoegen": {
+        "title": "Categorie toevoegen",
+        "data": {
+          "naam": "Naam",
+          "prefix": "Codeletter(s)",
+          "locatie": "Locatie",
+          "dagen": "Houdbaar in de vriezer",
+          "label": "Label printen",
+          "qr": "QR-code op het label"
+        },
+        "data_description": {
+          "prefix": "1 tot 3 letters voor de code, bv. V geeft V-0012. Kan later niet meer veranderen.",
+          "dagen": "Alleen bij een vriezerlocatie: de datum 'op voor' is de invriesdatum plus deze dagen. Elders vul je de houdbaarheidsdatum zelf in.",
+          "label": "Uit: er komt geen label in de wachtrij (bv. voor blikken in de kelder).",
+          "qr": "Werkt alleen als QR-codes onder Algemeen ook aan staan."
+        }
+      },
+      "categorie_kiezen": {
+        "title": "Categorie wijzigen",
+        "data": { "categorie": "Categorie" }
+      },
+      "categorie_wijzigen": {
+        "title": "Categorie wijzigen",
+        "description": "Codeletter(s): {prefix} (niet te wijzigen).",
+        "data": {
+          "naam": "Naam",
+          "locatie": "Locatie",
+          "dagen": "Houdbaar in de vriezer",
+          "label": "Label printen",
+          "qr": "QR-code op het label"
+        }
+      },
+      "categorie_verwijderen": {
+        "title": "Categorie verwijderen",
+        "description": "Kan alleen als er niets meer van die categorie op voorraad is.",
+        "data": { "categorie": "Categorie" }
+      },
+      "labelprinter": {
+        "title": "Labelprinter",
+        "description": "De add-on tekent elk label als zwart-wit PNG en geeft het pad door aan een actie. Zo werkt elke labelprinter met een HA-actie die een plaatje print. Laat de actie leeg om alleen de gebeurtenis voorraad_label af te vuren (met code, product, bestand), voor een eigen automatisering.",
+        "data": {
+          "label_actie": "Actie",
+          "label_veld": "Veld voor het bestandspad",
+          "label_extra": "Extra gegevens (JSON)",
+          "label_breedte": "Breedte (lange kant)",
+          "label_hoogte": "Hoogte (korte kant)",
+          "label_marge_lang": "Marge aan de korte zijden",
+          "label_marge_kort": "Marge aan de lange zijden",
+          "label_pauze": "Pauze tussen labels"
+        },
+        "data_description": {
+          "label_actie": "Bijvoorbeeld fichero.print_image.",
+          "label_veld": "Naam van het veld in die actie dat het pad krijgt, bv. bestand.",
+          "label_extra": "Wordt meegestuurd als JSON-object, bv. met dichtheid 2 voor Fichero.",
+          "label_breedte": "In printerpunten. Fichero D11s (30 x 14 mm): 240 x 96.",
+          "label_pauze": "Wachttijd voor het volgende label. De Fichero raakt in de war als labels snel na elkaar komen; 5 s werkt. Andere printers: 0."
+        }
+      },
+      "bonprinter": {
+        "title": "Bonprinter",
+        "description": "Voor een overzicht van de voorraad op een bonnetje. De add-on maakt de tekst en geeft die aan een actie, bv. van een ESC/POS-integratie. Leeg = alleen de gebeurtenis voorraad_bon (met tekst).",
+        "data": {
+          "bon_actie": "Actie",
+          "bon_veld": "Veld voor de tekst",
+          "bon_breedte": "Tekens per regel",
+          "bon_extra": "Extra gegevens (JSON)"
+        },
+        "data_description": {
+          "bon_actie": "Bijvoorbeeld de print-tekst-actie van je bonprinter-integratie. Om te testen: persistent_notification.create met veld message.",
+          "bon_breedte": "80 mm-papier: meestal 42 of 48; 58 mm: 32."
+        }
+      }
+    },
+    "error": {
+      "name_taken": "Deze naam bestaat al of is leeg",
+      "bad_prefix": "Gebruik 1 tot 3 letters (A-Z)",
+      "prefix_taken": "Deze codeletter(s) zijn al in gebruik",
+      "unknown_action": "Deze actie bestaat niet in HA",
+      "bad_json": "Geen geldig JSON-object (tussen accolades)",
+      "category_in_use": "Er is nog voorraad van deze categorie",
+      "last_category": "Er moet minstens één categorie blijven",
+      "location_in_use": "Een categorie gebruikt deze locatie nog; zet die eerst om",
+      "last_location": "Er moet minstens één locatie blijven"
+    },
+    "abort": {
+      "no_categories": "Er zijn nog geen categorieën."
+    }
+  },
+  "selector": {
+    "bij_scannen": {
+      "options": {
+        "melding": "Melding met knoppen",
+        "openen": "Meteen de pagina met het product openen",
+        "beide": "Pagina openen en een melding"
+      }
+    }
+  },
+  "services": {
+    "toevoegen": {
+      "name": "Toevoegen",
+      "description": "Zet een of meer stuks op voorraad. Elk stuk krijgt een code; bij een categorie met label komt het label in de wachtrij (of wordt meteen geprint met printen).",
+      "fields": {
+        "categorie": { "name": "Categorie", "description": "Naam of codeletter; leeg = de eerste categorie." },
+        "product": { "name": "Product", "description": "Bijvoorbeeld Rundergehakt. Wordt onthouden voor de volgende keer." },
+        "omschrijving": { "name": "Omschrijving", "description": "Optioneel, bijvoorbeeld 'van de slager' of 'Jumbo'." },
+        "hoeveelheid": { "name": "Hoeveelheid per stuk", "description": "Bijvoorbeeld 400 g, 1 kg of 3 stuks." },
+        "regel": { "name": "Regel", "description": "In plaats van product en hoeveelheid: 'Gehakt - 400 g' of 'Gehakt 400g'." },
+        "pakjes": { "name": "Aantal", "description": "Elk stuk krijgt een eigen code (en label)." },
+        "ingevroren": { "name": "Ingevroren op", "description": "Alleen in een vriezer; leeg = vandaag." },
+        "houdbaar_tot": { "name": "Houdbaar tot", "description": "Verplicht buiten de vriezer (THT). In de vriezer: leeg = invriesdatum plus de dagen van de categorie." },
+        "printen": { "name": "Meteen printen", "description": "Anders komt het label in de wachtrij." }
+      }
+    },
+    "van_boodschappenlijst": {
+      "name": "Van boodschappenlijst",
+      "description": "Zet een regel van een takenlijst (bv. de slager) op voorraad en vinkt hem daar af met 'naar <locatie>'.",
+      "fields": {
+        "entity_id": { "name": "Lijst", "description": "De takenlijst, bv. todo.slager." },
+        "uid": { "name": "UID", "description": "uid van de regel." },
+        "categorie": { "name": "Categorie", "description": "Leeg = de eerste categorie." },
+        "omschrijving": { "name": "Omschrijving", "description": "Optioneel." },
+        "pakjes": { "name": "Aantal", "description": "Standaard 1." },
+        "houdbaar_tot": { "name": "Houdbaar tot", "description": "Verplicht als de categorie niet in een vriezer staat." },
+        "printen": { "name": "Meteen printen", "description": "Anders komt het label in de wachtrij." }
+      }
+    },
+    "uithalen": {
+      "name": "Uithalen",
+      "description": "Haalt een stuk helemaal of voor een deel uit de voorraad.",
+      "fields": {
+        "code": { "name": "Code", "description": "Bijvoorbeeld V-0004 (v0004 mag ook)." },
+        "hoeveelheid": { "name": "Hoeveel eruit", "description": "Bijvoorbeeld 200 g. Leeg (en geen rest) = helemaal eruit." },
+        "rest": { "name": "Wat blijft over", "description": "In plaats van hoeveel eruit: wat er nog is, bv. 200 g." }
+      }
+    },
+    "terugzetten": {
+      "name": "Terugzetten",
+      "description": "Zet een uitgehaald stuk terug (ongedaan maken).",
+      "fields": { "code": { "name": "Code", "description": "Bijvoorbeeld V-0004." } }
+    },
+    "wijzigen": {
+      "name": "Wijzigen",
+      "description": "Past product, omschrijving, hoeveelheid, categorie of datums aan.",
+      "fields": {
+        "code": { "name": "Code", "description": "Bijvoorbeeld V-0004." },
+        "product": { "name": "Product", "description": "Nieuwe productnaam." },
+        "omschrijving": { "name": "Omschrijving", "description": "Vrije tekst." },
+        "hoeveelheid": { "name": "Hoeveelheid", "description": "Wat er nu is, bv. 300 g; leeg = onbekend." },
+        "categorie": { "name": "Categorie", "description": "Naar een andere categorie (en dus locatie)." },
+        "ingevroren": { "name": "Ingevroren op", "description": "Datum." },
+        "houdbaar_tot": { "name": "Houdbaar tot", "description": "Datum." }
+      }
+    },
+    "verwijderen": {
+      "name": "Verwijderen",
+      "description": "Wist een stuk helemaal, zonder geschiedenis (voor vergissingen). Gewoon op: gebruik Uithalen.",
+      "fields": { "code": { "name": "Code", "description": "Bijvoorbeeld V-0004." } }
+    },
+    "labels_printen": {
+      "name": "Labels printen",
+      "description": "Print de labels uit de wachtrij, of van de opgegeven codes (ook opnieuw).",
+      "fields": { "codes": { "name": "Codes", "description": "Leeg = de hele wachtrij; anders bv. V-0004, V-0005." } }
+    },
+    "uit_wachtrij": {
+      "name": "Uit de wachtrij",
+      "description": "Markeert labels als geprint zonder te printen.",
+      "fields": { "codes": { "name": "Codes", "description": "Leeg = de hele wachtrij." } }
+    },
+    "bon_printen": {
+      "name": "Overzicht op bon",
+      "description": "Print de voorraad op de bonprinter; het antwoord bevat de tekst.",
+      "fields": { "locatie": { "name": "Locatie", "description": "Leeg = alles." } }
+    },
+    "product_vergeten": {
+      "name": "Product vergeten",
+      "description": "Haalt een product uit de lijst met voorgestelde producten.",
+      "fields": { "product": { "name": "Product", "description": "Naam van het product." } }
+    },
+    "importeren": {
+      "name": "Importeren",
+      "description": "Neemt stuks over uit takenlijsten (regel 'Product - hoeveelheid', beschrijving 'V-0001 | ingevroren dd/mm/jjjj', vervaldatum = houdbaar tot).",
+      "fields": { "lijsten": { "name": "Lijsten", "description": "Lijst van {entity_id, categorie}." } }
+    },
+    "lijst": {
+      "name": "Lijst",
+      "description": "Geeft de hele voorraad terug."
+    }
+  }
+}

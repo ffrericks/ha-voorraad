@@ -4,8 +4,12 @@ toevoegen:
       example: Vlees
       selector:
         text:
-    naam:
+    product:
       example: Rundergehakt
+      selector:
+        text:
+    omschrijving:
+      example: van de slager
       selector:
         text:
     hoeveelheid:
@@ -26,12 +30,9 @@ toevoegen:
     ingevroren:
       selector:
         date:
-    op_voor:
+    houdbaar_tot:
       selector:
         date:
-    opmerking:
-      selector:
-        text:
     printen:
       default: false
       selector:
@@ -52,6 +53,9 @@ van_boodschappenlijst:
       example: Vlees
       selector:
         text:
+    omschrijving:
+      selector:
+        text:
     pakjes:
       default: 1
       selector:
@@ -59,6 +63,9 @@ van_boodschappenlijst:
           min: 1
           max: 50
           mode: box
+    houdbaar_tot:
+      selector:
+        date:
     printen:
       default: false
       selector:
@@ -92,21 +99,24 @@ wijzigen:
       example: V-0004
       selector:
         text:
-    naam:
+    product:
+      selector:
+        text:
+    omschrijving:
       selector:
         text:
     hoeveelheid:
       selector:
         text:
+    categorie:
+      selector:
+        text:
     ingevroren:
       selector:
         date:
-    op_voor:
+    houdbaar_tot:
       selector:
         date:
-    opmerking:
-      selector:
-        text:
 verwijderen:
   fields:
     code:
@@ -127,7 +137,15 @@ uit_wachtrij:
         text:
 bon_printen:
   fields:
-    categorie:
+    locatie:
+      example: Vriezer
+      selector:
+        text:
+product_vergeten:
+  fields:
+    product:
+      required: true
+      example: Rundergehakt
       selector:
         text:
 importeren:

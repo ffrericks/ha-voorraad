@@ -1,0 +1,14 @@
+{
+  "domain": "voorraad",
+  "name": "Voorraadbeheer",
+  "after_dependencies": ["fichero", "mobile_app", "tag", "todo"],
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/ffrericks/ha-voorraad",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/ffrericks/ha-voorraad/issues",
+  "requirements": ["segno==1.6.6"],
+  "single_config_entry": true,
+  "version": "0.2.0"
+}

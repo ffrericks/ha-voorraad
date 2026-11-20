@@ -1,4 +1,4 @@
-"""Config flow (one entry) and options: categories, QR, label printer, receipt printer."""
+"""Config flow (one entry) and options: locations, categories, QR, label and receipt printer."""
 
 from __future__ import annotations
 
@@ -10,10 +10,13 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers import selector as sel
+from homeassistant.util import slugify
 
 from .const import (
+    DEFAULT_LOCATIONS,
     DEFAULT_OPTIONS,
     DOMAIN,
+    OLD_DOMAIN,
     OPT_CATEGORIES,
     OPT_DASHBOARD,
     OPT_LABEL_ACTION,
@@ -24,6 +27,7 @@ from .const import (
     OPT_LABEL_MARGIN_SHORT,
     OPT_LABEL_PAUSE,
     OPT_LABEL_WIDTH,
+    OPT_LOCATIONS,
     OPT_NOTIFY,
     OPT_QR,
     OPT_RECEIPT_ACTION,
@@ -68,7 +72,7 @@ def _check_json(text: str) -> str | None:
         return "bad_json"
 
 
-class VriezerConfigFlow(ConfigFlow, domain=DOMAIN):
+class VoorraadConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
@@ -76,16 +80,28 @@ class VriezerConfigFlow(ConfigFlow, domain=DOMAIN):
             options = dict(DEFAULT_OPTIONS)
             if self.hass.services.has_service("fichero", "print_image"):
                 options[OPT_LABEL_ACTION] = "fichero.print_image"
-            return self.async_create_entry(title="Vriezer", data={}, options=options)
+            old = self.hass.config_entries.async_entries(OLD_DOMAIN)
+            if old:
+                # take over the settings of the freezer-only version
+                prev = dict(old[0].options)
+                for cat in prev.get(OPT_CATEGORIES, []):
+                    cat.setdefault("locatie", "vriezer")
+                    cat.setdefault("label", True)
+                prev.pop(OPT_DASHBOARD, None)
+                options.update(prev)
+                options[OPT_LOCATIONS] = list(DEFAULT_LOCATIONS)
+            return self.async_create_entry(
+                title="Voorraadbeheer", data={}, options=options
+            )
         return self.async_show_form(step_id="user")
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        return VriezerOptionsFlow()
+        return VoorraadOptionsFlow()
 
 
-class VriezerOptionsFlow(OptionsFlow):
+class VoorraadOptionsFlow(OptionsFlow):
     """Menu with one form per subject; every form saves right away."""
 
     def __init__(self) -> None:
@@ -101,16 +117,37 @@ class VriezerOptionsFlow(OptionsFlow):
     def _cats(self) -> list[dict[str, Any]]:
         return [dict(c) for c in self._opts[OPT_CATEGORIES]]
 
+    def _locs(self) -> list[dict[str, Any]]:
+        return [dict(x) for x in self._opts[OPT_LOCATIONS]]
+
+    def _loc_name(self, loc_id: str) -> str:
+        return next((x["naam"] for x in self._locs() if x["id"] == loc_id), loc_id)
+
     def _cat_choice(self) -> sel.SelectSelector:
         return sel.SelectSelector(
             sel.SelectSelectorConfig(
                 options=[
                     sel.SelectOptionDict(
-                        value=c["prefix"], label=f"{c['naam']} ({c['prefix']})"
+                        value=c["prefix"],
+                        label=f"{c['naam']} ({c['prefix']}, {self._loc_name(c.get('locatie', ''))})",
                     )
                     for c in self._cats()
                 ],
                 mode=sel.SelectSelectorMode.LIST,
+            )
+        )
+
+    def _loc_choice(self, mode=sel.SelectSelectorMode.LIST) -> sel.SelectSelector:
+        return sel.SelectSelector(
+            sel.SelectSelectorConfig(
+                options=[
+                    sel.SelectOptionDict(
+                        value=x["id"],
+                        label=x["naam"] + (" (invriezen)" if x["invriezen"] else ""),
+                    )
+                    for x in self._locs()
+                ],
+                mode=mode,
             )
         )
 
@@ -119,6 +156,9 @@ class VriezerOptionsFlow(OptionsFlow):
             step_id="init",
             menu_options=[
                 "algemeen",
+                "locatie_toevoegen",
+                "locatie_kiezen",
+                "locatie_verwijderen",
                 "categorie_toevoegen",
                 "categorie_kiezen",
                 "categorie_verwijderen",
@@ -176,7 +216,105 @@ class VriezerOptionsFlow(OptionsFlow):
         )
         return self.async_show_form(step_id="algemeen", data_schema=schema)
 
+    # ---- locations -------------------------------------------------------
+
+    async def async_step_locatie_toevoegen(self, user_input=None):
+        errors: dict[str, str] = {}
+        locs = self._locs()
+        if user_input is not None:
+            name = user_input["naam"].strip()
+            loc_id = slugify(name)
+            if not name or any(x["id"] == loc_id for x in locs):
+                errors["naam"] = "name_taken"
+            else:
+                locs.append(
+                    {"id": loc_id, "naam": name, "invriezen": user_input["invriezen"]}
+                )
+                return self._save(**{OPT_LOCATIONS: locs})
+        schema = vol.Schema(
+            {
+                vol.Required("naam"): TEXT,
+                vol.Required("invriezen", default=False): BOOL,
+            }
+        )
+        return self.async_show_form(
+            step_id="locatie_toevoegen",
+            data_schema=self.add_suggested_values_to_schema(schema, user_input or {}),
+            errors=errors,
+        )
+
+    async def async_step_locatie_kiezen(self, user_input=None):
+        if user_input is not None:
+            self._edit = user_input["locatie"]
+            return await self.async_step_locatie_wijzigen()
+        return self.async_show_form(
+            step_id="locatie_kiezen",
+            data_schema=vol.Schema({vol.Required("locatie"): self._loc_choice()}),
+        )
+
+    async def async_step_locatie_wijzigen(self, user_input=None):
+        locs = self._locs()
+        loc = next(x for x in locs if x["id"] == self._edit)
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            name = user_input["naam"].strip()
+            if not name or any(
+                x["naam"].lower() == name.lower() and x is not loc for x in locs
+            ):
+                errors["naam"] = "name_taken"
+            else:
+                loc.update(naam=name, invriezen=user_input["invriezen"])
+                return self._save(**{OPT_LOCATIONS: locs})
+        schema = vol.Schema(
+            {
+                vol.Required("naam", default=loc["naam"]): TEXT,
+                vol.Required("invriezen", default=loc["invriezen"]): BOOL,
+            }
+        )
+        return self.async_show_form(
+            step_id="locatie_wijzigen", data_schema=schema, errors=errors
+        )
+
+    async def async_step_locatie_verwijderen(self, user_input=None):
+        locs = self._locs()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            loc_id = user_input["locatie"]
+            if any(c.get("locatie") == loc_id for c in self._cats()):
+                errors["locatie"] = "location_in_use"
+            elif len(locs) == 1:
+                errors["locatie"] = "last_location"
+            else:
+                return self._save(
+                    **{OPT_LOCATIONS: [x for x in locs if x["id"] != loc_id]}
+                )
+        return self.async_show_form(
+            step_id="locatie_verwijderen",
+            data_schema=vol.Schema({vol.Required("locatie"): self._loc_choice()}),
+            errors=errors,
+        )
+
     # ---- categories ------------------------------------------------------
+
+    def _cat_schema(self, cat: dict[str, Any], with_prefix: bool) -> vol.Schema:
+        fields: dict[Any, Any] = {
+            vol.Required("naam", default=cat.get("naam", "")): TEXT
+        }
+        if with_prefix:
+            fields[vol.Required("prefix")] = TEXT
+        fields.update(
+            {
+                vol.Required(
+                    "locatie", default=cat.get("locatie") or self._locs()[0]["id"]
+                ): self._loc_choice(sel.SelectSelectorMode.DROPDOWN),
+                vol.Required("dagen", default=cat.get("dagen", 90)): _number(
+                    0, 1000, "dagen"
+                ),
+                vol.Required("label", default=cat.get("label", True)): BOOL,
+                vol.Required("qr", default=cat.get("qr", True)): BOOL,
+            }
+        )
+        return vol.Schema(fields)
 
     async def async_step_categorie_toevoegen(self, user_input=None):
         errors: dict[str, str] = {}
@@ -195,22 +333,18 @@ class VriezerOptionsFlow(OptionsFlow):
                     {
                         "naam": name,
                         "prefix": prefix,
+                        "locatie": user_input["locatie"],
                         "dagen": int(user_input["dagen"]),
+                        "label": user_input["label"],
                         "qr": user_input["qr"],
                     }
                 )
                 return self._save(**{OPT_CATEGORIES: cats})
-        schema = vol.Schema(
-            {
-                vol.Required("naam"): TEXT,
-                vol.Required("prefix"): TEXT,
-                vol.Required("dagen", default=90): _number(1, 1000, "dagen"),
-                vol.Required("qr", default=True): BOOL,
-            }
-        )
         return self.async_show_form(
             step_id="categorie_toevoegen",
-            data_schema=self.add_suggested_values_to_schema(schema, user_input or {}),
+            data_schema=self.add_suggested_values_to_schema(
+                self._cat_schema({}, True), user_input or {}
+            ),
             errors=errors,
         )
 
@@ -237,19 +371,16 @@ class VriezerOptionsFlow(OptionsFlow):
                 errors["naam"] = "name_taken"
             else:
                 cat.update(
-                    naam=name, dagen=int(user_input["dagen"]), qr=user_input["qr"]
+                    naam=name,
+                    locatie=user_input["locatie"],
+                    dagen=int(user_input["dagen"]),
+                    label=user_input["label"],
+                    qr=user_input["qr"],
                 )
                 return self._save(**{OPT_CATEGORIES: cats})
-        schema = vol.Schema(
-            {
-                vol.Required("naam", default=cat["naam"]): TEXT,
-                vol.Required("dagen", default=cat["dagen"]): _number(1, 1000, "dagen"),
-                vol.Required("qr", default=cat.get("qr", True)): BOOL,
-            }
-        )
         return self.async_show_form(
             step_id="categorie_wijzigen",
-            data_schema=schema,
+            data_schema=self._cat_schema(cat, False),
             errors=errors,
             description_placeholders={"prefix": cat["prefix"]},
         )

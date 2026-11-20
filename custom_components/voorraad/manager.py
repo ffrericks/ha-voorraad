@@ -1,4 +1,4 @@
-"""Freezer inventory: packages with a unique code, label queue, partial removal, QR scans."""
+"""Inventory: packages per location with a code, label queue, partial removal, QR scans."""
 
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ from .const import (
     DOMAIN,
     HISTORY_DAYS,
     LABEL_DIR,
+    OLD_DOMAIN,
     OPT_CATEGORIES,
     OPT_DASHBOARD,
     OPT_LABEL_ACTION,
@@ -38,6 +39,7 @@ from .const import (
     OPT_LABEL_MARGIN_SHORT,
     OPT_LABEL_PAUSE,
     OPT_LABEL_WIDTH,
+    OPT_LOCATIONS,
     OPT_NOTIFY,
     OPT_QR,
     OPT_RECEIPT_ACTION,
@@ -76,6 +78,14 @@ UNITS = {
     "plakken": ("st", 1),
     "bakje": ("st", 1),
     "bakjes": ("st", 1),
+    "pak": ("st", 1),
+    "pakken": ("st", 1),
+    "blik": ("st", 1),
+    "blikken": ("st", 1),
+    "pot": ("st", 1),
+    "potten": ("st", 1),
+    "fles": ("st", 1),
+    "flessen": ("st", 1),
     "portie": ("st", 1),
     "porties": ("st", 1),
 }
@@ -149,6 +159,10 @@ def nl_date(iso: str | None) -> str:
     return "/".join(reversed(iso.split("-"))) if iso else ""
 
 
+def full_name(pkg: dict[str, Any]) -> str:
+    return f"{pkg['product']} {pkg.get('omschrijving') or ''}".strip()
+
+
 # ---- manager -------------------------------------------------------------------
 
 
@@ -160,7 +174,7 @@ class Manager:
         self.entry = entry
         self.options: dict[str, Any] = {**DEFAULT_OPTIONS, **entry.options}
         self._store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-        self.data: dict[str, Any] = {"teller": 0, "pakjes": {}}
+        self.data: dict[str, Any] = {"teller": 0, "pakjes": {}, "producten": {}}
         self._unsubs: list[CALLBACK_TYPE] = []
         self._last_scan: tuple[str, datetime] | None = None
 
@@ -170,9 +184,41 @@ class Manager:
         stored = await self._store.async_load()
         if stored:
             self.data = stored
+        else:
+            await self._take_over_freezer()
         self.data.setdefault("teller", 0)
         self.data.setdefault("pakjes", {})
+        self.data.setdefault("producten", {})
         self._purge()
+
+    async def _take_over_freezer(self) -> None:
+        """First start: take over the data of the freezer-only version (.storage/vriezer)."""
+        old = await Store(self.hass, 1, OLD_DOMAIN).async_load()
+        if not old or not old.get("pakjes"):
+            return
+        self.data = {"teller": old.get("teller", 0), "pakjes": {}, "producten": {}}
+        for code, pkg in old["pakjes"].items():
+            new = {
+                "code": code,
+                "categorie": pkg["categorie"],
+                "product": pkg["naam"],
+                "omschrijving": pkg.get("opmerking", ""),
+                "hoeveelheid": pkg.get("hoeveelheid"),
+                "eenheid": pkg.get("eenheid", ""),
+                "begin": pkg.get("begin"),
+                "ingevroren": pkg.get("ingevroren"),
+                "op_voor": pkg.get("op_voor"),
+                "toegevoegd": pkg.get("toegevoegd"),
+                "geprint": pkg.get("geprint", True),
+                "uit": pkg.get("uit"),
+                "log": pkg.get("log", []),
+            }
+            self.data["pakjes"][code] = new
+            self._remember_product(new)
+        _LOGGER.info(
+            "Took over %s packages from the vriezer integration", len(old["pakjes"])
+        )
+        await self._store.async_save(self.data)
 
     @callback
     def start(self) -> None:
@@ -202,7 +248,11 @@ class Manager:
         self._store.async_delay_save(lambda: self.data, 1)
         async_dispatcher_send(self.hass, SIGNAL_UPDATED)
 
-    # ---- categories ------------------------------------------------------
+    # ---- locations and categories ----------------------------------------
+
+    @property
+    def locations(self) -> list[dict[str, Any]]:
+        return self.options[OPT_LOCATIONS]
 
     @property
     def categories(self) -> list[dict[str, Any]]:
@@ -226,6 +276,16 @@ class Manager:
     def _cat_by_prefix(self, prefix: str) -> dict[str, Any] | None:
         return next((c for c in self.categories if c["prefix"] == prefix), None)
 
+    def location_of(self, cat: dict[str, Any] | None) -> dict[str, Any]:
+        loc_id = (cat or {}).get("locatie")
+        for loc in self.locations:
+            if loc["id"] == loc_id:
+                return loc
+        return {"id": loc_id or "", "naam": loc_id or "Onbekend", "invriezen": False}
+
+    def _pkg_location(self, pkg: dict[str, Any]) -> dict[str, Any]:
+        return self.location_of(self._cat_by_prefix(pkg["categorie"]))
+
     # ---- packages --------------------------------------------------------
 
     def get(self, code: Any) -> dict[str, Any]:
@@ -248,31 +308,59 @@ class Manager:
             {"t": dt_util.now().isoformat(timespec="seconds"), "tekst": text}
         )
 
+    def _remember_product(self, pkg: dict[str, Any]) -> None:
+        key = pkg["product"].strip().lower()
+        if key:
+            self.data["producten"][key] = {
+                "naam": pkg["product"].strip(),
+                "categorie": pkg["categorie"],
+                "eenheid": pkg.get("eenheid", ""),
+            }
+
+    def _dates(
+        self, cat: dict[str, Any], frozen: Any, best_before: Any
+    ) -> tuple[str | None, str]:
+        """(freeze date, use-before date) for a new package in this category."""
+        loc = self.location_of(cat)
+        if loc["invriezen"]:
+            frozen_iso = (
+                parse_date(frozen, "invriesdatum") or dt_util.now().date().isoformat()
+            )
+            before = (
+                parse_date(best_before, "houdbaarheidsdatum")
+                or (
+                    date.fromisoformat(frozen_iso)
+                    + timedelta(days=int(cat.get("dagen") or 0))
+                ).isoformat()
+            )
+            return frozen_iso, before
+        before = parse_date(best_before, "houdbaarheidsdatum")
+        if not before:
+            raise ServiceValidationError(
+                f"Vul de houdbaarheidsdatum in ({cat['naam']} staat in de {loc['naam'].lower()})"
+            )
+        return None, before
+
     def add(
         self,
         category: Any,
-        name: str,
+        product: str,
+        description: str = "",
         amount: Any = "",
         packages: int = 1,
         frozen: Any = None,
-        use_before: Any = None,
-        note: str = "",
+        best_before: Any = None,
         source: str = "",
     ) -> list[str]:
         cat = self.category(category)
-        name = str(name or "").strip()
-        if not name:
-            raise ServiceValidationError("Vul een naam in")
+        product = str(product or "").strip()
+        if not product:
+            raise ServiceValidationError("Vul een product in")
+        known = self.data["producten"].get(product.lower())
+        if known:
+            product = known["naam"]  # same spelling as before
         qty, unit = parse_amount(amount)
-        frozen_iso = (
-            parse_date(frozen, "invriesdatum") or dt_util.now().date().isoformat()
-        )
-        before = (
-            parse_date(use_before, "op-voor-datum")
-            or (
-                date.fromisoformat(frozen_iso) + timedelta(days=int(cat["dagen"]))
-            ).isoformat()
-        )
+        frozen_iso, before = self._dates(cat, frozen, best_before)
         now = dt_util.now().isoformat(timespec="seconds")
         codes = []
         for _ in range(max(1, min(int(packages or 1), 50))):
@@ -280,48 +368,53 @@ class Manager:
             pkg = {
                 "code": code,
                 "categorie": cat["prefix"],
-                "naam": name,
+                "product": product,
+                "omschrijving": str(description or "").strip(),
                 "hoeveelheid": qty,
                 "eenheid": unit,
                 "begin": qty,
                 "ingevroren": frozen_iso,
                 "op_voor": before,
-                "opmerking": str(note or "").strip(),
                 "toegevoegd": now,
-                "geprint": False,
+                "geprint": not cat.get(
+                    "label", True
+                ),  # no label needed = nothing to print
                 "uit": None,
                 "log": [],
             }
             self._log(pkg, f"toegevoegd{' via ' + source if source else ''}")
             self.data["pakjes"][code] = pkg
             codes.append(code)
+        self._remember_product(self.data["pakjes"][codes[0]])
         self._changed()
         return codes
 
     def update(self, code: Any, fields: dict[str, Any]) -> dict[str, Any]:
         pkg = self.get(code)
-        changes = []
-        if fields.get("naam") is not None:
-            name = str(fields["naam"]).strip()
-            if not name:
-                raise ServiceValidationError("Naam mag niet leeg zijn")
-            pkg["naam"] = name
-            changes.append("naam")
+        new: dict[str, Any] = {}
+        if fields.get("product") is not None:
+            new["product"] = str(fields["product"]).strip()
+            if not new["product"]:
+                raise ServiceValidationError("Product mag niet leeg zijn")
+        if fields.get("omschrijving") is not None:
+            new["omschrijving"] = str(fields["omschrijving"]).strip()
         if fields.get("hoeveelheid") is not None:
-            pkg["hoeveelheid"], pkg["eenheid"] = parse_amount(fields["hoeveelheid"])
-            changes.append(
-                f"hoeveelheid {fmt_amount(pkg['hoeveelheid'], pkg['eenheid'])}"
-            )
+            new["hoeveelheid"], new["eenheid"] = parse_amount(fields["hoeveelheid"])
+        if fields.get("categorie"):
+            new["categorie"] = self.category(fields["categorie"])["prefix"]
         if fields.get("ingevroren"):
-            pkg["ingevroren"] = parse_date(fields["ingevroren"], "invriesdatum")
-            changes.append("invriesdatum")
-        if fields.get("op_voor"):
-            pkg["op_voor"] = parse_date(fields["op_voor"], "op-voor-datum")
-            changes.append("op voor")
-        if fields.get("opmerking") is not None:
-            pkg["opmerking"] = str(fields["opmerking"]).strip()
+            new["ingevroren"] = parse_date(fields["ingevroren"], "invriesdatum")
+        if fields.get("houdbaar_tot"):
+            new["op_voor"] = parse_date(fields["houdbaar_tot"], "houdbaarheidsdatum")
+        changes = []
+        for key, value in new.items():
+            if pkg.get(key) != value:
+                pkg[key] = value
+                if key != "eenheid":
+                    changes.append(key)
         if changes:
             self._log(pkg, "gewijzigd: " + ", ".join(changes))
+            self._remember_product(pkg)
         self._changed()
         return pkg
 
@@ -331,20 +424,23 @@ class Manager:
         del self.data["pakjes"][pkg["code"]]
         self._changed()
 
+    def forget_product(self, name: Any) -> None:
+        if self.data["producten"].pop(str(name or "").strip().lower(), None) is None:
+            raise ServiceValidationError(f"Product '{name}' staat niet in de lijst")
+        self._changed()
+
     def take(self, code: Any, amount: Any = "", rest: Any = "") -> dict[str, Any]:
-        """Take a package out of the freezer: all of it, an amount, or down to a rest."""
+        """Take a package out: all of it, an amount, or down to a rest."""
         pkg = self.get(code)
         if pkg.get("uit"):
-            raise ServiceValidationError(
-                f"{pkg['code']} {pkg['naam']} is al uit de vriezer"
-            )
+            raise ServiceValidationError(f"{pkg['code']} {full_name(pkg)} is al weg")
         amount, rest = str(amount or "").strip(), str(rest or "").strip()
         if not amount and not rest:
             return self._take_all(pkg)
         have = pkg.get("hoeveelheid")
         if have is None:
             raise ServiceValidationError(
-                f"Van {pkg['naam']} is geen hoeveelheid bekend; haal het helemaal eruit "
+                f"Van {full_name(pkg)} is geen hoeveelheid bekend; haal het helemaal eruit "
                 "of vul eerst een hoeveelheid in (Wijzigen)"
             )
         value, unit = parse_amount(rest or amount)
@@ -354,7 +450,7 @@ class Manager:
             return self._take_all(pkg)
         if left >= have - 1e-9:
             raise ServiceValidationError(
-                f"Er zit nu {fmt_amount(have, pkg['eenheid'])} in; dat blijft dan gelijk"
+                f"Er is nu {fmt_amount(have, pkg['eenheid'])}; dat blijft dan gelijk"
             )
         pkg["hoeveelheid"] = round(left, 3)
         self._log(
@@ -387,7 +483,7 @@ class Manager:
     def put_back(self, code: Any) -> dict[str, Any]:
         pkg = self.get(code)
         if not pkg.get("uit"):
-            raise ServiceValidationError(f"{pkg['code']} zit nog in de vriezer")
+            raise ServiceValidationError(f"{pkg['code']} is er nog")
         pkg["uit"] = None
         self._log(pkg, "teruggezet")
         self._changed()
@@ -401,9 +497,9 @@ class Manager:
     # ---- import ----------------------------------------------------------
 
     async def import_todo(self, lists: list[dict[str, Any]]) -> dict[str, Any]:
-        """Take over packages from todo lists in the old format.
+        """Take over packages from todo lists.
 
-        Item 'Naam - hoeveelheid', description 'V-0001 | ingevroren dd/mm/jjjj',
+        Item 'Product - hoeveelheid', description 'V-0001 | ingevroren dd/mm/jjjj',
         due date = use before, completed = taken out.
         """
         entity_ids = [item["entity_id"] for item in lists]
@@ -419,6 +515,7 @@ class Manager:
         highest = self.data["teller"]
         for item_list in lists:
             cat = self.category(item_list["categorie"])
+            freezer = self.location_of(cat)["invriezen"]
             for item in result.get(item_list["entity_id"], {}).get("items", []):
                 desc = item.get("description") or ""
                 code = normalize_code(desc.split("|")[0])
@@ -434,24 +531,30 @@ class Manager:
                 frozen = None
                 if "ingevroren" in desc:
                     frozen = parse_date(desc.split("ingevroren", 1)[1].strip(), "datum")
-                frozen = frozen or dt_util.now().date().isoformat()
-                before = (
-                    item.get("due")
-                    or (
-                        date.fromisoformat(frozen) + timedelta(days=int(cat["dagen"]))
+                if freezer:
+                    frozen = frozen or dt_util.now().date().isoformat()
+                before = item.get("due") or (
+                    (
+                        date.fromisoformat(frozen)
+                        + timedelta(days=int(cat.get("dagen") or 0))
                     ).isoformat()
+                    if frozen
+                    else None
                 )
+                if not before:
+                    skipped.append(item["summary"])
+                    continue
                 done = item.get("status") == "completed"
                 pkg = {
                     "code": code,
                     "categorie": code.split("-")[0],
-                    "naam": name,
+                    "product": name,
+                    "omschrijving": note,
                     "hoeveelheid": qty,
                     "eenheid": unit,
                     "begin": qty,
                     "ingevroren": frozen,
                     "op_voor": before[:10],
-                    "opmerking": note,
                     "toegevoegd": dt_util.now().isoformat(timespec="seconds"),
                     "geprint": True,
                     "uit": (item.get("completed") or dt_util.now().isoformat())
@@ -461,6 +564,7 @@ class Manager:
                 }
                 self._log(pkg, f"overgenomen uit {item_list['entity_id']}")
                 self.data["pakjes"][code] = pkg
+                self._remember_product(pkg)
                 highest = max(highest, int(code.split("-")[1], 16))
                 added.append(code)
         self.data["teller"] = highest
@@ -477,7 +581,7 @@ class Manager:
         return bool(self.options[OPT_QR] and (cat is None or cat.get("qr", True)))
 
     async def print_labels(self, codes: list[str] | None = None) -> dict[str, Any]:
-        """Print the given codes, or the whole queue (not yet printed, still in the freezer)."""
+        """Print the given codes, or the whole queue (not yet printed, still there)."""
         if codes:
             pkgs = [self.get(c) for c in codes]
         else:
@@ -504,6 +608,11 @@ class Manager:
             self._changed()
         return {"geprint": printed, "fout": error}
 
+    def _label_date(self, pkg: dict[str, Any]) -> str:
+        if pkg.get("ingevroren"):
+            return nl_date(pkg["ingevroren"])
+        return f"THT {nl_date(pkg['op_voor'])}"
+
     async def _print_one(self, pkg: dict[str, Any]) -> None:
         opt = self.options
         qr = self.tag_url(pkg["code"]) if self._wants_qr(pkg) else None
@@ -515,17 +624,19 @@ class Manager:
             int(opt[OPT_LABEL_MARGIN_LONG]),
             int(opt[OPT_LABEL_MARGIN_SHORT]),
             pkg["code"],
-            pkg["naam"],
-            nl_date(pkg["ingevroren"]),
+            full_name(pkg),
+            self._label_date(pkg),
             qr,
         )
         await self.hass.async_add_executor_job(label.save, img, path)
         event = {
             "code": pkg["code"],
-            "naam": pkg["naam"],
+            "product": pkg["product"],
+            "omschrijving": pkg.get("omschrijving", ""),
             "hoeveelheid": fmt_amount(pkg["hoeveelheid"], pkg["eenheid"]),
-            "ingevroren": nl_date(pkg["ingevroren"]),
-            "op_voor": nl_date(pkg["op_voor"]),
+            "ingevroren": nl_date(pkg.get("ingevroren")),
+            "houdbaar_tot": nl_date(pkg["op_voor"]),
+            "locatie": self._pkg_location(pkg)["naam"],
             "bestand": str(path),
             "qr": qr or "",
         }
@@ -574,43 +685,46 @@ class Manager:
 
     # ---- receipt ---------------------------------------------------------
 
-    def receipt_text(self, category: Any = None) -> str:
+    def receipt_text(self, location: Any = None) -> str:
         width = max(24, int(self.options[OPT_RECEIPT_WIDTH]))
         today = dt_util.now().date().isoformat()
-        cats = [self.category(category)] if category else self.categories
-        lines = ["VRIEZER", dt_util.now().strftime("%d/%m/%Y %H:%M"), "=" * width]
+        locs = self.locations
+        if location:
+            text = str(location).strip().lower()
+            locs = [x for x in locs if text in (x["id"], x["naam"].lower())]
+            if not locs:
+                raise ServiceValidationError(f"Locatie '{location}' bestaat niet")
+        lines = ["VOORRAAD", dt_util.now().strftime("%d/%m/%Y %H:%M"), "=" * width]
 
         def two(left: str, right: str) -> str:
             space = width - len(right) - 1
             return f"{left[:space]:<{space}} {right}"
 
-        for cat in cats:
+        for loc in locs:
             pkgs = sorted(
                 (
                     p
                     for p in self.data["pakjes"].values()
-                    if p["categorie"] == cat["prefix"] and not p["uit"]
+                    if not p["uit"] and self._pkg_location(p)["id"] == loc["id"]
                 ),
-                key=lambda p: (p["naam"].lower(), p["op_voor"]),
+                key=lambda p: (p["product"].lower(), p["op_voor"] or ""),
             )
-            lines += [
-                "",
-                two(cat["naam"].upper(), f"{len(pkgs)} pakje(s)"),
-                "-" * width,
-            ]
+            lines += ["", two(loc["naam"].upper(), f"{len(pkgs)} stuks"), "-" * width]
             if not pkgs:
                 lines.append("(leeg)")
             groups: dict[str, list[dict[str, Any]]] = {}
             for pkg in pkgs:
-                groups.setdefault(pkg["naam"].lower(), []).append(pkg)
+                groups.setdefault(pkg["product"].lower(), []).append(pkg)
             for group in groups.values():
                 total = self._total(group)
-                lines.append(two(group[0]["naam"], f"{len(group)}x {total}".strip()))
+                lines.append(two(group[0]["product"], f"{len(group)}x {total}".strip()))
                 for pkg in group:
-                    late = "!" if pkg["op_voor"] < today else " "
+                    late = "!" if pkg["op_voor"] and pkg["op_voor"] < today else " "
                     amount = fmt_amount(pkg["hoeveelheid"], pkg["eenheid"])
-                    when = nl_date(pkg["op_voor"])[:6] + nl_date(pkg["op_voor"])[8:]
-                    lines.append(two(f" {pkg['code']} {amount}", f"{late}op {when}"))
+                    left = f" {pkg['code']} {pkg.get('omschrijving') or ''} {amount}"
+                    when = nl_date(pkg["op_voor"])
+                    when = when[:6] + when[8:] if when else ""
+                    lines.append(two(" " + " ".join(left.split()), f"{late}{when}"))
         lines += ["", "! = over de datum", ""]
         return "\n".join(lines)
 
@@ -622,8 +736,8 @@ class Manager:
                 sums[pkg["eenheid"]] = sums.get(pkg["eenheid"], 0) + pkg["hoeveelheid"]
         return " + ".join(fmt_amount(v, u) for u, v in sums.items())
 
-    async def print_receipt(self, category: Any = None) -> str:
-        text = self.receipt_text(category)
+    async def print_receipt(self, location: Any = None) -> str:
+        text = self.receipt_text(location)
         action = str(self.options[OPT_RECEIPT_ACTION] or "").strip()
         self.hass.bus.async_fire(f"{DOMAIN}_bon", {"tekst": text})
         if action:
@@ -636,28 +750,35 @@ class Manager:
 
     def snapshot(self) -> dict[str, Any]:
         today = dt_util.now().date().isoformat()
-        cats = {c["prefix"]: c["naam"] for c in self.categories}
+        cats = {c["prefix"]: c for c in self.categories}
 
         def view(pkg: dict[str, Any]) -> dict[str, Any]:
+            cat = cats.get(pkg["categorie"])
+            loc = self.location_of(cat)
             return {
                 "code": pkg["code"],
-                "categorie": cats.get(pkg["categorie"], pkg["categorie"]),
-                "naam": pkg["naam"],
+                "categorie": cat["naam"] if cat else pkg["categorie"],
+                "locatie": loc["naam"],
+                "locatie_id": loc["id"],
+                "invriezen": loc["invriezen"],
+                "label": bool(cat.get("label", True)) if cat else True,
+                "product": pkg["product"],
+                "omschrijving": pkg.get("omschrijving", ""),
                 "hoeveelheid": fmt_amount(pkg["hoeveelheid"], pkg["eenheid"]),
                 "getal": pkg["hoeveelheid"],
                 "eenheid": pkg["eenheid"],
                 "begin": fmt_amount(pkg.get("begin"), pkg["eenheid"]),
-                "ingevroren": pkg["ingevroren"],
+                "ingevroren": pkg.get("ingevroren"),
                 "op_voor": pkg["op_voor"],
-                "over_datum": pkg["op_voor"] < today,
-                "opmerking": pkg.get("opmerking", ""),
+                "over_datum": bool(pkg["op_voor"] and pkg["op_voor"] < today),
+                "toegevoegd": (pkg.get("toegevoegd") or "")[:10],
                 "geprint": pkg["geprint"],
                 "uit": pkg["uit"],
             }
 
         active = sorted(
             (p for p in self.data["pakjes"].values() if not p["uit"]),
-            key=lambda p: (p["categorie"], p["naam"].lower(), p["op_voor"]),
+            key=lambda p: (p["product"].lower(), p["op_voor"] or ""),
         )
         gone = sorted(
             (p for p in self.data["pakjes"].values() if p["uit"]),
@@ -667,7 +788,32 @@ class Manager:
         return {
             "pakjes": [view(p) for p in active],
             "recent_uit": [view(p) for p in gone],
-            "categorieen": [c["naam"] for c in self.categories],
+            "locaties": [
+                {"id": x["id"], "naam": x["naam"], "invriezen": x["invriezen"]}
+                for x in self.locations
+            ],
+            "categorieen": [
+                {
+                    "naam": c["naam"],
+                    "prefix": c["prefix"],
+                    "locatie": self.location_of(c)["naam"],
+                    "invriezen": self.location_of(c)["invriezen"],
+                    "label": bool(c.get("label", True)),
+                }
+                for c in self.categories
+            ],
+            "producten": sorted(
+                (
+                    {
+                        "naam": p["naam"],
+                        "categorie": cats[p["categorie"]]["naam"]
+                        if p["categorie"] in cats
+                        else "",
+                    }
+                    for p in self.data["producten"].values()
+                ),
+                key=lambda p: p["naam"].lower(),
+            ),
             "te_printen": sum(1 for p in active if not p["geprint"]),
             "qr": bool(self.options[OPT_QR]),
             "labelprinter": bool(str(self.options[OPT_LABEL_ACTION] or "").strip()),
@@ -702,7 +848,7 @@ class Manager:
 
     def _page(self, code: str) -> str:
         dashboard = str(self.options[OPT_DASHBOARD] or "").strip()
-        return f"{dashboard}?vriezer={code}" if dashboard else ""
+        return f"{dashboard}?voorraad={code}" if dashboard else ""
 
     async def _on_tag(self, event: Event) -> None:
         tag_id = str(event.data.get("tag_id") or "")
@@ -716,7 +862,7 @@ class Manager:
             return
         self._last_scan = (code, dt_util.now())
         if pkg is None:
-            await self._send(service, code, "Vriezer", f"Code {code} ken ik niet.", [])
+            await self._send(service, code, "Voorraad", f"Code {code} ken ik niet.", [])
             return
         mode = self.options[OPT_SCAN]
         page = self._page(code)
@@ -736,29 +882,32 @@ class Manager:
         amount = fmt_amount(pkg["hoeveelheid"], pkg["eenheid"])
         page = self._page(pkg["code"])
         open_btn = [{"action": "URI", "title": "Openen", "uri": page}] if page else []
+        loc = self._pkg_location(pkg)
         if pkg["uit"]:
             when = dt_util.parse_datetime(pkg["uit"])
-            msg = f"{intro}Is op {when.strftime('%d/%m') if when else '?'} uit de vriezer gehaald."
+            msg = f"{intro}Is op {when.strftime('%d/%m') if when else '?'} uit de {loc['naam'].lower()} gehaald."
             actions = [
                 {"action": f"{ACTION_UNDO}|{pkg['code']}", "title": "Terugzetten"}
             ]
         else:
-            msg = (
-                f"{intro}{amount + ', ' if amount else ''}ingevroren {nl_date(pkg['ingevroren'])}, "
-                f"op voor {nl_date(pkg['op_voor'])}"
+            dates = (
+                f"ingevroren {nl_date(pkg['ingevroren'])}, op voor {nl_date(pkg['op_voor'])}"
+                if pkg.get("ingevroren")
+                else f"houdbaar tot {nl_date(pkg['op_voor'])}"
             )
+            msg = f"{intro}{amount + ', ' if amount else ''}{loc['naam']}, {dates}"
             actions = [
                 {"action": f"{ACTION_ALL}|{pkg['code']}", "title": "Helemaal eruit"}
             ]
             if pkg["hoeveelheid"] is not None:
                 actions.append({"action": ACTION_REPLY, "title": "Deel eruit"})
-        title = f"{pkg['naam']} ({pkg['code']})"
+        title = f"{full_name(pkg)} ({pkg['code']})"
         await self._send(service, pkg["code"], title, msg, actions + open_btn)
 
     async def _send(
         self, service: str, code: str, title: str, message: str, actions: list
     ) -> None:
-        data = {"tag": f"vriezer-{code}", "channel": "Vriezer", "actions": actions}
+        data = {"tag": f"voorraad-{code}", "channel": "Voorraad", "actions": actions}
         if page := self._page(code):
             # tapping the notification itself opens the package (Android / iOS)
             data["clickAction"] = page
@@ -774,7 +923,7 @@ class Manager:
             )
         except Exception:
             _LOGGER.exception(
-                "Sending freezer notification via notify.%s failed", service
+                "Sending inventory notification via notify.%s failed", service
             )
 
     async def _on_action(self, event: Event) -> None:
@@ -783,7 +932,7 @@ class Manager:
             kind, code = action.split("|", 1)
         elif action == ACTION_REPLY:
             tag = str(event.data.get("tag") or "")
-            code = tag.removeprefix("vriezer-") if tag.startswith("vriezer-") else ""
+            code = tag.removeprefix("voorraad-") if tag.startswith("voorraad-") else ""
             if not code and self._last_scan:
                 last, when = self._last_scan
                 if dt_util.now() - when < timedelta(minutes=SCAN_MEMORY_MINUTES):
@@ -802,7 +951,7 @@ class Manager:
         try:
             if kind == ACTION_ALL:
                 self.take(code)
-                intro = "Helemaal uit de vriezer. "
+                intro = "Helemaal eruit. "
             elif kind == ACTION_UNDO:
                 self.put_back(code)
                 intro = "Teruggezet. "

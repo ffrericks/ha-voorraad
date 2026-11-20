@@ -1,0 +1,259 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Inventory",
+        "description": "Inventory per location (freezer, fridge, cellar ...) with a code and optionally a label per item. Set up locations, categories, QR codes and printers afterwards via Configure. If the old Vriezer integration is still there, its settings and stock are taken over."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Inventory is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Inventory settings",
+        "menu_options": {
+          "algemeen": "General (QR codes, scanning, notifications)",
+          "locatie_toevoegen": "Add location",
+          "locatie_kiezen": "Edit location",
+          "locatie_verwijderen": "Delete location",
+          "categorie_toevoegen": "Add category",
+          "categorie_kiezen": "Edit category",
+          "categorie_verwijderen": "Delete category",
+          "labelprinter": "Label printer",
+          "bonprinter": "Receipt printer"
+        }
+      },
+      "algemeen": {
+        "title": "General",
+        "data": {
+          "qr": "QR code on labels",
+          "melden_aan": "Phone for notifications after a scan",
+          "dashboard": "Dashboard path for Open",
+          "bij_scannen": "On scan"
+        },
+        "data_description": {
+          "qr": "Puts a QR code on the label (can be switched per category). Scanning it with a phone running the HA app opens the page or sends a notification.",
+          "melden_aan": "Normally the notification goes to the phone that scanned. Pick a phone here if that does not work.",
+          "dashboard": "For example /lovelace/voorraad. Empty = no Open button.",
+          "bij_scannen": "Opening the page only works with the Android app; an iPhone always gets the notification. Ignoring a notification changes nothing."
+        }
+      },
+      "locatie_toevoegen": {
+        "title": "Add location",
+        "data": {
+          "naam": "Name",
+          "invriezen": "This is a freezer"
+        },
+        "data_description": {
+          "naam": "For example Freezer, Fridge, Cellar, Pantry.",
+          "invriezen": "On: the date is the freeze date plus the days of the category. Off: every item needs a best-before date."
+        }
+      },
+      "locatie_kiezen": {
+        "title": "Edit location",
+        "data": { "locatie": "Location" }
+      },
+      "locatie_wijzigen": {
+        "title": "Edit location",
+        "data": {
+          "naam": "Name",
+          "invriezen": "This is a freezer"
+        }
+      },
+      "locatie_verwijderen": {
+        "title": "Delete location",
+        "description": "Only possible when no category uses this location.",
+        "data": { "locatie": "Location" }
+      },
+      "categorie_toevoegen": {
+        "title": "Add category",
+        "data": {
+          "naam": "Name",
+          "prefix": "Code letter(s)",
+          "locatie": "Location",
+          "dagen": "Keeps in the freezer",
+          "label": "Print a label",
+          "qr": "QR code on the label"
+        },
+        "data_description": {
+          "prefix": "1 to 3 letters for the code, e.g. M gives M-0012. Cannot be changed later.",
+          "dagen": "Only for a freezer location: 'use before' is the freeze date plus these days. Elsewhere you enter the best-before date.",
+          "label": "Off: no label goes to the queue (e.g. for tins in the cellar).",
+          "qr": "Only works when QR codes are also on under General."
+        }
+      },
+      "categorie_kiezen": {
+        "title": "Edit category",
+        "data": { "categorie": "Category" }
+      },
+      "categorie_wijzigen": {
+        "title": "Edit category",
+        "description": "Code letter(s): {prefix} (cannot be changed).",
+        "data": {
+          "naam": "Name",
+          "locatie": "Location",
+          "dagen": "Keeps in the freezer",
+          "label": "Print a label",
+          "qr": "QR code on the label"
+        }
+      },
+      "categorie_verwijderen": {
+        "title": "Delete category",
+        "description": "Only possible when nothing of that category is in stock.",
+        "data": { "categorie": "Category" }
+      },
+      "labelprinter": {
+        "title": "Label printer",
+        "description": "Every label is drawn as a black and white PNG and its path is passed to an action, so any label printer with an HA action that prints an image works. Leave the action empty to only fire the event voorraad_label (with code, product, file) for your own automation.",
+        "data": {
+          "label_actie": "Action",
+          "label_veld": "Field for the file path",
+          "label_extra": "Extra data (JSON)",
+          "label_breedte": "Width (long side)",
+          "label_hoogte": "Height (short side)",
+          "label_marge_lang": "Margin at the short sides",
+          "label_marge_kort": "Margin at the long sides",
+          "label_pauze": "Pause between labels"
+        },
+        "data_description": {
+          "label_actie": "For example fichero.print_image.",
+          "label_veld": "Name of the field in that action that gets the path.",
+          "label_extra": "Sent along as a JSON object, e.g. with dichtheid 2 for Fichero.",
+          "label_breedte": "In printer dots. Fichero D11s (30 x 14 mm): 240 x 96.",
+          "label_pauze": "Wait before the next label. The Fichero gets confused when labels follow each other quickly; 5 s works. Other printers: 0."
+        }
+      },
+      "bonprinter": {
+        "title": "Receipt printer",
+        "description": "Prints an overview of the inventory on a receipt. The text is passed to an action, e.g. of an ESC/POS integration. Empty = only the event voorraad_bon (with the text).",
+        "data": {
+          "bon_actie": "Action",
+          "bon_veld": "Field for the text",
+          "bon_breedte": "Characters per line",
+          "bon_extra": "Extra data (JSON)"
+        },
+        "data_description": {
+          "bon_actie": "For example the print text action of your receipt printer integration. To test: persistent_notification.create with field message.",
+          "bon_breedte": "80 mm paper: usually 42 or 48; 58 mm: 32."
+        }
+      }
+    },
+    "error": {
+      "name_taken": "This name already exists or is empty",
+      "bad_prefix": "Use 1 to 3 letters (A-Z)",
+      "prefix_taken": "These code letters are already in use",
+      "unknown_action": "This action does not exist in HA",
+      "bad_json": "Not a valid JSON object (between curly braces)",
+      "category_in_use": "There is still stock of this category",
+      "last_category": "At least one category must remain",
+      "location_in_use": "A category still uses this location; move it first",
+      "last_location": "At least one location must remain"
+    },
+    "abort": {
+      "no_categories": "There are no categories yet."
+    }
+  },
+  "selector": {
+    "bij_scannen": {
+      "options": {
+        "melding": "Notification with buttons",
+        "openen": "Open the page with the item right away",
+        "beide": "Open the page and send a notification"
+      }
+    }
+  },
+  "services": {
+    "toevoegen": {
+      "name": "Add",
+      "description": "Puts one or more items in stock. Each item gets a code; for a category with labels the label goes to the queue (or is printed right away with print).",
+      "fields": {
+        "categorie": { "name": "Category", "description": "Name or code letter; empty = the first category." },
+        "product": { "name": "Product", "description": "For example Minced beef. Remembered for next time." },
+        "omschrijving": { "name": "Description", "description": "Optional, e.g. 'from the butcher'." },
+        "hoeveelheid": { "name": "Amount per item", "description": "For example 400 g, 1 kg or 3 pcs." },
+        "regel": { "name": "Line", "description": "Instead of product and amount: 'Mince - 400 g' or 'Mince 400g'." },
+        "pakjes": { "name": "Number", "description": "Each item gets its own code (and label)." },
+        "ingevroren": { "name": "Frozen on", "description": "Freezer only; empty = today." },
+        "houdbaar_tot": { "name": "Best before", "description": "Required outside a freezer. In a freezer: empty = freeze date plus the days of the category." },
+        "printen": { "name": "Print now", "description": "Otherwise the label goes to the queue." }
+      }
+    },
+    "van_boodschappenlijst": {
+      "name": "From shopping list",
+      "description": "Puts a line from a to-do list (e.g. the butcher) in stock and ticks it off there with 'naar <location>'.",
+      "fields": {
+        "entity_id": { "name": "List", "description": "The to-do list." },
+        "uid": { "name": "UID", "description": "uid of the line." },
+        "categorie": { "name": "Category", "description": "Empty = the first category." },
+        "omschrijving": { "name": "Description", "description": "Optional." },
+        "pakjes": { "name": "Number", "description": "Default 1." },
+        "houdbaar_tot": { "name": "Best before", "description": "Required when the category is not in a freezer." },
+        "printen": { "name": "Print now", "description": "Otherwise the label goes to the queue." }
+      }
+    },
+    "uithalen": {
+      "name": "Take out",
+      "description": "Takes an item out of stock, completely or in part.",
+      "fields": {
+        "code": { "name": "Code", "description": "For example V-0004 (v0004 works too)." },
+        "hoeveelheid": { "name": "Amount taken", "description": "For example 200 g. Empty (and no rest) = everything." },
+        "rest": { "name": "Amount left", "description": "Instead of the amount taken: what is left, e.g. 200 g." }
+      }
+    },
+    "terugzetten": {
+      "name": "Put back",
+      "description": "Puts a removed item back (undo).",
+      "fields": { "code": { "name": "Code", "description": "For example V-0004." } }
+    },
+    "wijzigen": {
+      "name": "Edit",
+      "description": "Changes product, description, amount, category or dates of an item.",
+      "fields": {
+        "code": { "name": "Code", "description": "For example V-0004." },
+        "product": { "name": "Product", "description": "New product name." },
+        "omschrijving": { "name": "Description", "description": "Free text." },
+        "hoeveelheid": { "name": "Amount", "description": "What is there now, e.g. 300 g; empty = unknown." },
+        "categorie": { "name": "Category", "description": "Move to another category (and so location)." },
+        "ingevroren": { "name": "Frozen on", "description": "Date." },
+        "houdbaar_tot": { "name": "Best before", "description": "Date." }
+      }
+    },
+    "verwijderen": {
+      "name": "Delete",
+      "description": "Deletes an item completely, without history (for mistakes). Used up: use Take out.",
+      "fields": { "code": { "name": "Code", "description": "For example V-0004." } }
+    },
+    "labels_printen": {
+      "name": "Print labels",
+      "description": "Prints the labels in the queue, or those of the given codes (also again).",
+      "fields": { "codes": { "name": "Codes", "description": "Empty = the whole queue; otherwise e.g. V-0004, V-0005." } }
+    },
+    "uit_wachtrij": {
+      "name": "Remove from queue",
+      "description": "Marks labels as printed without printing.",
+      "fields": { "codes": { "name": "Codes", "description": "Empty = the whole queue." } }
+    },
+    "bon_printen": {
+      "name": "Overview on receipt",
+      "description": "Prints the inventory on the receipt printer; the response holds the text.",
+      "fields": { "locatie": { "name": "Location", "description": "Empty = all." } }
+    },
+    "product_vergeten": {
+      "name": "Forget product",
+      "description": "Removes a product from the list of suggested products.",
+      "fields": { "product": { "name": "Product", "description": "Name of the product." } }
+    },
+    "importeren": {
+      "name": "Import",
+      "description": "Takes over items from to-do lists (line 'Product - amount', description 'V-0001 | ingevroren dd/mm/yyyy', due date = best before).",
+      "fields": { "lijsten": { "name": "Lists", "description": "List of {entity_id, categorie}." } }
+    },
+    "lijst": {
+      "name": "List",
+      "description": "Returns the whole inventory."
+    }
+  }
+}
