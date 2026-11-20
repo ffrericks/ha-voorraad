@@ -44,6 +44,7 @@ from .const import (
     OPT_RECEIPT_EXTRA,
     OPT_RECEIPT_FIELD,
     OPT_RECEIPT_WIDTH,
+    OPT_SCAN,
     SCAN_MEMORY_MINUTES,
     SIGNAL_UPDATED,
     STORAGE_KEY,
@@ -677,6 +678,10 @@ class Manager:
 
     def _notify_service(self, device_id: str | None) -> str | None:
         """notify service of the phone that scanned, else the one from the options."""
+        return self._phone(device_id)[0]
+
+    def _phone(self, device_id: str | None) -> tuple[str | None, str]:
+        """(notify service, os name) of the phone that scanned, else from the options."""
         if device_id:
             device = dr.async_get(self.hass).async_get(device_id)
             entry_ids = []
@@ -689,11 +694,15 @@ class Manager:
                     name = entry.data.get("device_name") or device.name or ""
                     service = f"mobile_app_{slugify(name)}"
                     if self.hass.services.has_service("notify", service):
-                        return service
+                        return service, str(entry.data.get("os_name") or "")
         fallback = str(self.options[OPT_NOTIFY] or "").removeprefix("notify.").strip()
         if fallback and self.hass.services.has_service("notify", fallback):
-            return fallback
-        return None
+            return fallback, ""
+        return None, ""
+
+    def _page(self, code: str) -> str:
+        dashboard = str(self.options[OPT_DASHBOARD] or "").strip()
+        return f"{dashboard}?vriezer={code}" if dashboard else ""
 
     async def _on_tag(self, event: Event) -> None:
         tag_id = str(event.data.get("tag_id") or "")
@@ -701,7 +710,7 @@ class Manager:
             return
         code = normalize_code(tag_id[len(TAG_PREFIX) :])
         pkg = self.data["pakjes"].get(code)
-        service = self._notify_service(event.data.get("device_id"))
+        service, os_name = self._phone(event.data.get("device_id"))
         if service is None:
             _LOGGER.warning("Scan of %s, but no phone to notify", code)
             return
@@ -709,24 +718,24 @@ class Manager:
         if pkg is None:
             await self._send(service, code, "Vriezer", f"Code {code} ken ik niet.", [])
             return
+        mode = self.options[OPT_SCAN]
+        page = self._page(code)
+        # Opening a page from a notification command only exists in the Android app
+        can_open = bool(page) and os_name.lower() != "ios"
+        if can_open and mode in ("openen", "beide"):
+            await self._call_notify(
+                service, {"message": "command_webview", "data": {"command": page}}
+            )
+            if mode == "openen":
+                return
         await self._send_package(service, pkg)
 
     async def _send_package(
         self, service: str, pkg: dict[str, Any], intro: str = ""
     ) -> None:
         amount = fmt_amount(pkg["hoeveelheid"], pkg["eenheid"])
-        dashboard = str(self.options[OPT_DASHBOARD] or "").strip()
-        open_btn = (
-            [
-                {
-                    "action": "URI",
-                    "title": "Openen",
-                    "uri": f"{dashboard}?vriezer={pkg['code']}",
-                }
-            ]
-            if dashboard
-            else []
-        )
+        page = self._page(pkg["code"])
+        open_btn = [{"action": "URI", "title": "Openen", "uri": page}] if page else []
         if pkg["uit"]:
             when = dt_util.parse_datetime(pkg["uit"])
             msg = f"{intro}Is op {when.strftime('%d/%m') if when else '?'} uit de vriezer gehaald."
@@ -750,12 +759,18 @@ class Manager:
         self, service: str, code: str, title: str, message: str, actions: list
     ) -> None:
         data = {"tag": f"vriezer-{code}", "channel": "Vriezer", "actions": actions}
+        if page := self._page(code):
+            # tapping the notification itself opens the package (Android / iOS)
+            data["clickAction"] = page
+            data["url"] = page
+        await self._call_notify(
+            service, {"title": title, "message": message, "data": data}
+        )
+
+    async def _call_notify(self, service: str, payload: dict[str, Any]) -> None:
         try:
             await self.hass.services.async_call(
-                "notify",
-                service,
-                {"title": title, "message": message, "data": data},
-                blocking=True,
+                "notify", service, payload, blocking=True
             )
         except Exception:
             _LOGGER.exception(

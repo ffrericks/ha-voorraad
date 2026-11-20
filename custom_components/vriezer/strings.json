@@ -28,12 +28,14 @@
         "data": {
           "qr": "QR-code op labels",
           "melden_aan": "Telefoon voor meldingen na een scan",
-          "dashboard": "Dashboard-pad voor de knop Openen"
+          "dashboard": "Dashboard-pad voor de knop Openen",
+          "bij_scannen": "Bij scannen"
         },
         "data_description": {
           "qr": "Zet een QR-code op het label (per categorie aan of uit te zetten). Scan je hem met de telefoon met de HA-app, dan krijg je een melding met Helemaal eruit, Deel eruit en Openen.",
           "melden_aan": "Normaal gaat de melding naar de telefoon die scant. Kies hier een telefoon als dat niet lukt.",
-          "dashboard": "Bijvoorbeeld /lovelace/vriezer. Leeg = geen knop Openen."
+          "dashboard": "Bijvoorbeeld /lovelace/vriezer. Leeg = geen knop Openen.",
+          "bij_scannen": "Pagina openen werkt alleen met de Android-app; op een iPhone komt altijd de melding. Een melding negeren verandert niets."
         }
       },
       "categorie_toevoegen": {
@@ -301,6 +303,15 @@
     "lijst": {
       "name": "Lijst",
       "description": "Geeft de hele voorraad terug."
+    }
+  },
+  "selector": {
+    "bij_scannen": {
+      "options": {
+        "melding": "Melding met knoppen",
+        "openen": "Meteen de pagina met het pakje openen",
+        "beide": "Pagina openen en een melding"
+      }
     }
   }
 }

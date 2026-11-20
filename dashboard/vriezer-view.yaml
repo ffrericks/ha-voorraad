@@ -605,12 +605,29 @@
 
           const at = (states['sensor.vriezer_voorraad'] || {}).attributes;
           if (!at || !at.pakjes) return "<style>\n  .vz{text-align:left;font-size:14px;line-height:1.4;white-space:normal}\n  .vz button{font:inherit;font-size:13px;border:1px solid var(--divider-color);background:var(--card-background-color);\n    color:var(--primary-text-color);border-radius:8px;padding:6px 11px;cursor:pointer}\n  .vz button.pri{background:var(--primary-color);border-color:var(--primary-color);color:#fff}\n  .vz button.arm{background:var(--error-color,#c62828);border-color:var(--error-color,#c62828);color:#fff}\n  .vz button[disabled]{opacity:.6}\n  .vz label{display:block;font-size:12px;color:var(--secondary-text-color);margin:8px 0 2px}\n  .vz input,.vz select{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:8px;\n    border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color)}\n  .vz input[type=date]{cursor:pointer}\n  .vz-row{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}\n  .vz-b{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}\n  .vz-status{margin-top:8px;font-size:13px;min-height:1em}\n  .vz-status:empty{display:none}\n  .vz-status.err{color:var(--error-color,#c62828)}\n  .vz-status.ok{color:var(--success-color,#2e7d32)}\n  .vz-s{color:var(--secondary-text-color);font-size:13px}\n  .vz-empty{color:var(--secondary-text-color);font-size:13px}\n  .vz-h{font-weight:600;font-size:15px;margin:14px 0 4px}\n  .vz-h:first-child{margin-top:0}\n  .vz-h span{font-weight:400;color:var(--secondary-text-color);font-size:13px}\n  table.vz-t{width:100%;border-collapse:collapse;font-size:13px}\n  .vz-t td{padding:4px 6px 4px 0;border-top:1px solid var(--divider-color);vertical-align:top}\n  .vz-t td.n{font-weight:500}\n  .vz-t td.o{color:var(--secondary-text-color);white-space:nowrap}\n  .late{color:var(--error-color,#c62828) !important}\n  .vz-q{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--divider-color)}\n  .vz-q .n{flex:1}\n  .vz-q code,.vz-pk code{font-size:12px;background:var(--secondary-background-color,#f1f1f1);border-radius:6px;padding:1px 6px}\n  .vz-pk{border-top:1px solid var(--divider-color)}\n  .vz-pk .top{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer}\n  .vz-pk .top .n{flex:1}\n  .vz-pk .top .q{color:var(--secondary-text-color);white-space:nowrap}\n  .vz-pk .more,.vz-pk .ed{display:none;padding:2px 0 12px}\n  .vz-pk.open .more{display:block}\n  .vz-pk.open.editing .ed{display:block}\n  .vz-pk.open{background:var(--secondary-background-color,#f6f6f6);margin:0 -10px;padding:0 10px;border-radius:10px}\n  .vz-part{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}\n  .vz-part input{flex:1;min-width:90px;width:auto}\n  .vz-badge{font-size:11px;border-radius:8px;padding:1px 7px;background:#fff3cd;color:#7a5b00;margin-left:4px;white-space:nowrap}\n  .vz details summary{cursor:pointer;color:var(--secondary-text-color);margin-top:14px}\n</style>" + '<div class="vz vz-empty">De integratie Vriezer is (nog) niet geladen.</div>';
-          // deep link from a scan notification: ?vriezer=V-0004 opens that package once
-          const want = new URLSearchParams(location.search).get('vriezer');
-          if (want && vz.linked !== want) {
-            vz.linked = want; vz.open = want.toUpperCase();
-            setTimeout(() => { const r = this.shadowRoot && this.shadowRoot.querySelector(`.vz-pk[data-code="${vz.open}"]`); if (r) r.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 400);
+          // deep link from a scan: ?vriezer=V-0004 opens that package, also when the view is already open
+          vz.lists = vz.lists || new Set();
+          vz.lists.add(this);
+          vz.link = () => {
+            const want = (new URLSearchParams(location.search).get('vriezer') || '').toUpperCase();
+            if (!want || vz.linked === location.href) return;
+            vz.linked = location.href; vz.open = want; vz.edit = null;
+            setTimeout(() => {
+              for (const c of vz.lists) {
+                if (!c.isConnected) { vz.lists.delete(c); continue; }
+                const rows = c.shadowRoot ? c.shadowRoot.querySelectorAll('.vz-pk') : [];
+                for (const r of rows) { r.classList.toggle('open', r.dataset.code === want); r.classList.remove('editing'); }
+                const r = c.shadowRoot && c.shadowRoot.querySelector(`.vz-pk[data-code="${want}"]`);
+                if (r) r.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }, 400);
+          };
+          if (!window.__vzLoc) {
+            window.__vzLoc = true;
+            window.addEventListener('location-changed', () => window.__vz2.link());
+            window.addEventListener('popstate', () => window.__vz2.link());
           }
+          vz.link();
           const today = new Date().toISOString().slice(0, 10);
           const short = (d) => d ? `${d.slice(8, 10)}-${d.slice(5, 7)}` : '';
           const fmt = (n) => String(Math.round(n * 100) / 100).replace('.', ',');

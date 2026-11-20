@@ -13,7 +13,7 @@ The integration, its actions and the dashboard are in Dutch (`vriezer` = freezer
 - **Add first, print later**: new packages go to a print queue. Print one label, or all labels in the queue at once. A label can be printed again at any time.
 - **Take out all or part**: amounts are understood in g, kg, ons, ml, l and pieces (`st`, `stuks`, `porties`); kg and g are converted. Enter how much you take out, or what is left. *Put back* undoes a mistake.
 - **Totals per product** per category, with the oldest package first and the "use before" date (freeze date plus the days of the category). Packages past that date are shown in red.
-- **QR code on the label** (optional): it is a Home Assistant tag. Scanning it with a phone that runs the Companion app sends a notification to that phone with *Take all*, *Take part* (type the amount as a reply, Android) and *Open* (opens the dashboard with that package selected).
+- **QR code on the label** (optional): it is a Home Assistant tag. Scanning it with a phone that runs the Companion app either opens the dashboard with that package selected (Android), or sends a notification to that phone with *Take all*, *Take part* (type the amount as a reply, Android) and *Open*, or both. Ignoring the notification changes nothing.
 - **Any label printer**: the integration draws each label as a black and white PNG at the size you set, and passes the file path to an action of your choice. Without an action it only fires the event `vriezer_label`, so you can print with your own automation.
 - **Receipt printer** (optional): prints an overview of the freezer as plain text through an action of your choice (e.g. an ESC/POS integration), or fires the event `vriezer_bon`.
 - **Shopping list endpoint**: `vriezer.van_boodschappenlijst` moves a line from a to-do list (e.g. "Mince - 500 g" on the butcher list) to the freezer and ticks it off there.
@@ -37,7 +37,7 @@ Copy `custom_components/vriezer` to `config/custom_components/vriezer` and resta
 
 | Menu | Settings |
 | --- | --- |
-| General | QR codes on labels, phone for notifications (default: the phone that scans), dashboard path for the *Open* button |
+| General | QR codes on labels, phone for notifications (default: the phone that scans), dashboard path for the *Open* button, what happens on a scan (notification, open the page, or both) |
 | Add / edit / delete category | name, code letters (cannot change later), days, QR on the label. A category can only be deleted when it is empty. |
 | Label printer | action, name of its field for the file path, extra data (JSON), label width and height in printer dots, margins, pause between labels |
 | Receipt printer | action, name of its field for the text, characters per line, extra data (JSON) |
@@ -117,7 +117,7 @@ Een eigen integratie voor Home Assistant die bijhoudt wat er in de vriezer ligt.
 - **Categorieën** stel je zelf in: naam, codeletter(s), hoe lang het houdbaar is, QR-code aan of uit.
 - **Eerst toevoegen, dan printen**: nieuwe pakjes komen in een wachtrij; print ze los of allemaal tegelijk, en opnieuw wanneer je wilt.
 - **Helemaal of deels uithalen**: bijvoorbeeld 400 g gehakt terug naar 200 g. Vul in hoeveel je eruit haalt of wat er overblijft. *Terugzetten* maakt een vergissing ongedaan.
-- **QR-code op het label** (optioneel): scan hem met de telefoon met de HA-app en je krijgt een melding met *Helemaal eruit*, *Deel eruit* en *Openen*.
+- **QR-code op het label** (optioneel): scan hem met de telefoon met de HA-app en de pagina met het pakje gaat open (Android), of je krijgt een melding met *Helemaal eruit*, *Deel eruit* en *Openen*, of allebei. Een melding negeren verandert niets.
 - **Elke labelprinter**: de integratie tekent het label als PNG en geeft het pad aan een actie die jij kiest; zonder actie komt de gebeurtenis `vriezer_label`. Stel de labelmaat in printerpunten in, en eventueel een pauze tussen labels.
 - **Bonprinter** (optioneel): een overzicht van de vriezer op een bonnetje.
 - **Boodschappenlijst**: `vriezer.van_boodschappenlijst` zet een regel van bijvoorbeeld de slagerlijst in de vriezer en vinkt hem daar af.

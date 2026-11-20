@@ -28,12 +28,14 @@
         "data": {
           "qr": "QR code on labels",
           "melden_aan": "Phone for notifications after a scan",
-          "dashboard": "Dashboard path for the Open button"
+          "dashboard": "Dashboard path for the Open button",
+          "bij_scannen": "On scan"
         },
         "data_description": {
           "qr": "Puts a QR code on the label (can be switched per category). Scanning it with a phone running the HA app gives a notification with Take all, Take part and Open.",
           "melden_aan": "Normally the notification goes to the phone that scanned. Pick a phone here if that does not work.",
-          "dashboard": "For example /lovelace/freezer. Empty = no Open button."
+          "dashboard": "For example /lovelace/freezer. Empty = no Open button.",
+          "bij_scannen": "Opening the page only works with the Android app; an iPhone always gets the notification. Ignoring a notification changes nothing."
         }
       },
       "categorie_toevoegen": {
@@ -301,6 +303,15 @@
     "lijst": {
       "name": "List",
       "description": "Returns the whole inventory."
+    }
+  },
+  "selector": {
+    "bij_scannen": {
+      "options": {
+        "melding": "Notification with buttons",
+        "openen": "Open the page with the package right away",
+        "beide": "Open the page and send a notification"
+      }
     }
   }
 }

@@ -30,6 +30,8 @@ from .const import (
     OPT_RECEIPT_EXTRA,
     OPT_RECEIPT_FIELD,
     OPT_RECEIPT_WIDTH,
+    OPT_SCAN,
+    SCAN_MODES,
 )
 
 TEXT = sel.TextSelector()
@@ -135,6 +137,7 @@ class VriezerOptionsFlow(OptionsFlow):
                     OPT_QR: user_input[OPT_QR],
                     OPT_NOTIFY: user_input.get(OPT_NOTIFY, ""),
                     OPT_DASHBOARD: user_input.get(OPT_DASHBOARD, "").strip(),
+                    OPT_SCAN: user_input.get(OPT_SCAN, "melding"),
                 }
             )
         phones = sorted(
@@ -162,6 +165,13 @@ class VriezerOptionsFlow(OptionsFlow):
                     )
                 ),
                 vol.Optional(OPT_DASHBOARD, default=opts[OPT_DASHBOARD]): TEXT,
+                vol.Required(OPT_SCAN, default=opts[OPT_SCAN]): sel.SelectSelector(
+                    sel.SelectSelectorConfig(
+                        options=list(SCAN_MODES),
+                        translation_key=OPT_SCAN,
+                        mode=sel.SelectSelectorMode.LIST,
+                    )
+                ),
             }
         )
         return self.async_show_form(step_id="algemeen", data_schema=schema)

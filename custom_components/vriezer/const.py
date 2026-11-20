@@ -24,6 +24,8 @@ OPT_CATEGORIES = "categorieen"
 OPT_QR = "qr"
 OPT_NOTIFY = "melden_aan"
 OPT_DASHBOARD = "dashboard"
+OPT_SCAN = "bij_scannen"  # melding | openen | beide
+SCAN_MODES = ("melding", "openen", "beide")
 OPT_LABEL_ACTION = "label_actie"
 OPT_LABEL_FIELD = "label_veld"
 OPT_LABEL_EXTRA = "label_extra"
@@ -49,6 +51,7 @@ DEFAULT_OPTIONS = {
     OPT_QR: False,
     OPT_NOTIFY: "",
     OPT_DASHBOARD: "/lovelace/vriezer",
+    OPT_SCAN: "melding",
     OPT_LABEL_ACTION: "",
     OPT_LABEL_FIELD: "bestand",
     OPT_LABEL_EXTRA: "",
