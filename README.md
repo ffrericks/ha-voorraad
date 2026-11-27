@@ -16,7 +16,7 @@ This integration was called *Vriezer* (freezer) before; on first setup it takes 
 - **Categories** you set up yourself: name, 1 to 3 code letters, location, days it keeps in the freezer, whether it needs a printed label, and QR code on or off.
 - **Products are remembered**: enter a product (e.g. *Minced beef*) and an optional description (e.g. *from the butcher*). Next time the product is suggested and its category is picked for you. Totals are per product, whatever the description.
 - **A code per item**: code letters plus a 4-digit hex counter, e.g. `V-0015`.
-- **Add first, print later**: items of a category with labels go to a print queue. Print one label or all at once, and again at any time. Categories without labels skip the queue.
+- **Add first, print later**: items of a category with labels go to a print queue. Each label has its own print button, and again at any time; while a label is printing the other print buttons wait (small label printers lose their position with a fast series). Categories without labels skip the queue.
 - **Take out all or part**: amounts in g, kg, ons, ml, l and pieces (`st`, `stuks`, `pak`, `blik`, `pot`, `fles`, `porties`); kg and g are converted. Enter how much you take out, or what is left. *Put back* undoes a mistake.
 - **Search** on product, description or code across all locations.
 - **QR code on the label** (optional): a Home Assistant tag. Scanning it with a phone that runs the Companion app opens the dashboard with that item (Android), or sends a notification with *Take all*, *Take part* (type the amount as a reply) and *Open*, or both. Ignoring the notification changes nothing.

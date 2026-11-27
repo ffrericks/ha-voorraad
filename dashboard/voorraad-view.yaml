@@ -30,6 +30,8 @@
           [[[
 
           const vz = window.__vr1 = window.__vr1 || { open: null, edit: null, msg: {}, q: '', lists: new Set(), prods: {} };
+          vz.printCards = vz.printCards || new Set();
+          vz.pdis = () => (vz.printing ? ' disabled' : '');
           const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
           vz.esc = esc;
           vz.nl = (d) => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '';
@@ -103,12 +105,23 @@
               vz.say(el, 'form', `Om ${vz.hm()} ${r.codes.length}x ${data.product} toegevoegd (${codes}).${lbl}`, true);
               return;
             }
-            if (a === 'print-all' || a === 'print' || a === 'reprint') {
+            if (a === 'print' || a === 'reprint') {
+              // one label at a time: the Fichero loses the label position with a series
+              if (vz.printing || !code) return;
               const key = a === 'reprint' ? 'list' : 'queue';
-              const old = el.textContent; el.textContent = 'Bezig...'; el.disabled = true;
-              const r = await vz.call('labels_printen', code ? { codes: code } : {});
-              el.textContent = old; el.disabled = false;
-              vz.say(el, key, r.ok ? `Om ${vz.hm()} ${r.geprint.length} label${r.geprint.length === 1 ? '' : 's'} geprint` : r.fout, r.ok);
+              const buttons = () => [...vz.printCards].flatMap((c) => (c.isConnected && c.shadowRoot
+                ? [...c.shadowRoot.querySelectorAll('[data-vz=print],[data-vz=reprint]')] : []));
+              vz.printing = true;
+              const old = el.textContent; el.textContent = 'Bezig...';
+              for (const b of buttons()) b.disabled = true;
+              const r = await Promise.race([
+                vz.call('labels_printen', { codes: code }),
+                new Promise((res) => setTimeout(() => res({ ok: false, fout: 'Geen antwoord van HA binnen 2 minuten' }), 120000)),
+              ]);
+              vz.printing = false;
+              el.textContent = old;
+              for (const b of buttons()) if (b.isConnected) b.disabled = false;
+              vz.say(el, key, r.ok ? `Om ${vz.hm()} label ${code} geprint` : r.fout, r.ok);
               return;
             }
             if (a === 'skip') {
@@ -290,6 +303,8 @@
           [[[
 
           const vz = window.__vr1 = window.__vr1 || { open: null, edit: null, msg: {}, q: '', lists: new Set(), prods: {} };
+          vz.printCards = vz.printCards || new Set();
+          vz.pdis = () => (vz.printing ? ' disabled' : '');
           const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
           vz.esc = esc;
           vz.nl = (d) => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '';
@@ -363,12 +378,23 @@
               vz.say(el, 'form', `Om ${vz.hm()} ${r.codes.length}x ${data.product} toegevoegd (${codes}).${lbl}`, true);
               return;
             }
-            if (a === 'print-all' || a === 'print' || a === 'reprint') {
+            if (a === 'print' || a === 'reprint') {
+              // one label at a time: the Fichero loses the label position with a series
+              if (vz.printing || !code) return;
               const key = a === 'reprint' ? 'list' : 'queue';
-              const old = el.textContent; el.textContent = 'Bezig...'; el.disabled = true;
-              const r = await vz.call('labels_printen', code ? { codes: code } : {});
-              el.textContent = old; el.disabled = false;
-              vz.say(el, key, r.ok ? `Om ${vz.hm()} ${r.geprint.length} label${r.geprint.length === 1 ? '' : 's'} geprint` : r.fout, r.ok);
+              const buttons = () => [...vz.printCards].flatMap((c) => (c.isConnected && c.shadowRoot
+                ? [...c.shadowRoot.querySelectorAll('[data-vz=print],[data-vz=reprint]')] : []));
+              vz.printing = true;
+              const old = el.textContent; el.textContent = 'Bezig...';
+              for (const b of buttons()) b.disabled = true;
+              const r = await Promise.race([
+                vz.call('labels_printen', { codes: code }),
+                new Promise((res) => setTimeout(() => res({ ok: false, fout: 'Geen antwoord van HA binnen 2 minuten' }), 120000)),
+              ]);
+              vz.printing = false;
+              el.textContent = old;
+              for (const b of buttons()) if (b.isConnected) b.disabled = false;
+              vz.say(el, key, r.ok ? `Om ${vz.hm()} label ${code} geprint` : r.fout, r.ok);
               return;
             }
             if (a === 'skip') {
@@ -495,6 +521,7 @@
 
           const at = (states['sensor.voorraad'] || {}).attributes;
           if (!at || !at.pakjes) return "<style>\n  .vz{text-align:left;font-size:14px;line-height:1.4;white-space:normal}\n  .vz button{font:inherit;font-size:13px;border:1px solid var(--divider-color);background:var(--card-background-color);\n    color:var(--primary-text-color);border-radius:8px;padding:6px 11px;cursor:pointer}\n  .vz button.pri{background:var(--primary-color);border-color:var(--primary-color);color:#fff}\n  .vz button.arm{background:var(--error-color,#c62828);border-color:var(--error-color,#c62828);color:#fff}\n  .vz button[disabled]{opacity:.6}\n  .vz label{display:block;font-size:12px;color:var(--secondary-text-color);margin:8px 0 2px}\n  .vz input,.vz select{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:8px;\n    border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color)}\n  .vz input[type=date]{cursor:pointer}\n  .vz-row{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}\n  .vz-b{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}\n  .vz-status{margin-top:8px;font-size:13px;min-height:1em}\n  .vz-status:empty{display:none}\n  .vz-status.err{color:var(--error-color,#c62828)}\n  .vz-status.ok{color:var(--success-color,#2e7d32)}\n  .vz-s{color:var(--secondary-text-color);font-size:13px}\n  .vz-empty{color:var(--secondary-text-color);font-size:13px}\n  .vz-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px;align-items:start}\n  .vz-loc{border:1px solid var(--divider-color);border-radius:12px;padding:10px 12px}\n  .vz-h{font-weight:600;font-size:16px;margin:0 0 6px}\n  .vz-h span{font-weight:400;color:var(--secondary-text-color);font-size:13px}\n  .vz-sub{font-weight:600;font-size:13px;color:var(--secondary-text-color);margin:12px 0 2px;text-transform:uppercase;letter-spacing:.04em}\n  table.vz-t{width:100%;border-collapse:collapse;font-size:13px}\n  .vz-t td{padding:4px 6px 4px 0;border-top:1px solid var(--divider-color);vertical-align:top}\n  .vz-t td.n{font-weight:500}\n  .vz-t td.o{color:var(--secondary-text-color)}\n  .late{color:var(--error-color,#c62828) !important}\n  .vz-q{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--divider-color)}\n  .vz-q .n{flex:1}\n  .vz-q code,.vz-pk code{font-size:12px;background:var(--secondary-background-color,#f1f1f1);border-radius:6px;padding:1px 6px}\n  .vz-pk{border-top:1px solid var(--divider-color)}\n  .vz-pk .top{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer}\n  .vz-pk .top .n{flex:1}\n  .vz-pk .top .d{color:var(--secondary-text-color);font-size:13px}\n  .vz-pk .top .q{color:var(--secondary-text-color);white-space:nowrap}\n  .vz-pk .more,.vz-pk .ed{display:none;padding:2px 0 12px}\n  .vz-pk.open .more{display:block}\n  .vz-pk.open.editing .ed{display:block}\n  .vz-pk.open{background:var(--secondary-background-color,#f6f6f6);margin:0 -8px;padding:0 8px;border-radius:10px}\n  .vz-part{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}\n  .vz-part input{flex:1;min-width:90px;width:auto}\n  .vz-badge{font-size:11px;border-radius:8px;padding:1px 7px;background:#fff3cd;color:#7a5b00;margin-left:4px;white-space:nowrap}\n  .vz details summary{cursor:pointer;color:var(--secondary-text-color);margin-top:14px}\n  .vz-sr{display:flex;gap:8px;align-items:center}\n  .vz-sr input{flex:1}\n</style>" + '<div class="vz vz-empty">De integratie Voorraadbeheer is (nog) niet geladen.</div>';
+          vz.printCards.add(this);
           const todo = at.pakjes.filter((p) => !p.geprint);
           let out = '';
           if (!todo.length) {
@@ -503,9 +530,9 @@
             out += todo.map((p) => `<div class="vz-q"><code>${esc(p.code)}</code><span class="n">${esc(p.product)}` +
               `${p.omschrijving ? ' <span class="vz-s">' + esc(p.omschrijving) + '</span>' : ''}` +
               `${p.hoeveelheid ? ' <span class="vz-s">' + esc(p.hoeveelheid) + '</span>' : ''}</span>` +
-              `<button data-vz="print" data-code="${esc(p.code)}">Print</button>` +
+              `<button data-vz="print" data-code="${esc(p.code)}"${vz.pdis()}>Print</button>` +
               `<button data-vz="skip" data-code="${esc(p.code)}" title="Niet printen">×</button></div>`).join('');
-            out += `<div class="vz-b"><button class="pri" data-vz="print-all">Print ${todo.length === 1 ? 'label' : 'alle ' + todo.length + ' labels'}</button></div>`;
+            out += '<div class="vz-s" style="margin-top:6px">Print de labels een voor een; wacht tot het vorige label eruit is.</div>';
           }
           if (!at.labelprinter) out += '<div class="vz-s" style="margin-top:6px">Geen labelprinter ingesteld: printen vuurt alleen de gebeurtenis voorraad_label af.</div>';
           return "<style>\n  .vz{text-align:left;font-size:14px;line-height:1.4;white-space:normal}\n  .vz button{font:inherit;font-size:13px;border:1px solid var(--divider-color);background:var(--card-background-color);\n    color:var(--primary-text-color);border-radius:8px;padding:6px 11px;cursor:pointer}\n  .vz button.pri{background:var(--primary-color);border-color:var(--primary-color);color:#fff}\n  .vz button.arm{background:var(--error-color,#c62828);border-color:var(--error-color,#c62828);color:#fff}\n  .vz button[disabled]{opacity:.6}\n  .vz label{display:block;font-size:12px;color:var(--secondary-text-color);margin:8px 0 2px}\n  .vz input,.vz select{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:8px;\n    border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color)}\n  .vz input[type=date]{cursor:pointer}\n  .vz-row{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}\n  .vz-b{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}\n  .vz-status{margin-top:8px;font-size:13px;min-height:1em}\n  .vz-status:empty{display:none}\n  .vz-status.err{color:var(--error-color,#c62828)}\n  .vz-status.ok{color:var(--success-color,#2e7d32)}\n  .vz-s{color:var(--secondary-text-color);font-size:13px}\n  .vz-empty{color:var(--secondary-text-color);font-size:13px}\n  .vz-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px;align-items:start}\n  .vz-loc{border:1px solid var(--divider-color);border-radius:12px;padding:10px 12px}\n  .vz-h{font-weight:600;font-size:16px;margin:0 0 6px}\n  .vz-h span{font-weight:400;color:var(--secondary-text-color);font-size:13px}\n  .vz-sub{font-weight:600;font-size:13px;color:var(--secondary-text-color);margin:12px 0 2px;text-transform:uppercase;letter-spacing:.04em}\n  table.vz-t{width:100%;border-collapse:collapse;font-size:13px}\n  .vz-t td{padding:4px 6px 4px 0;border-top:1px solid var(--divider-color);vertical-align:top}\n  .vz-t td.n{font-weight:500}\n  .vz-t td.o{color:var(--secondary-text-color)}\n  .late{color:var(--error-color,#c62828) !important}\n  .vz-q{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--divider-color)}\n  .vz-q .n{flex:1}\n  .vz-q code,.vz-pk code{font-size:12px;background:var(--secondary-background-color,#f1f1f1);border-radius:6px;padding:1px 6px}\n  .vz-pk{border-top:1px solid var(--divider-color)}\n  .vz-pk .top{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer}\n  .vz-pk .top .n{flex:1}\n  .vz-pk .top .d{color:var(--secondary-text-color);font-size:13px}\n  .vz-pk .top .q{color:var(--secondary-text-color);white-space:nowrap}\n  .vz-pk .more,.vz-pk .ed{display:none;padding:2px 0 12px}\n  .vz-pk.open .more{display:block}\n  .vz-pk.open.editing .ed{display:block}\n  .vz-pk.open{background:var(--secondary-background-color,#f6f6f6);margin:0 -8px;padding:0 8px;border-radius:10px}\n  .vz-part{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}\n  .vz-part input{flex:1;min-width:90px;width:auto}\n  .vz-badge{font-size:11px;border-radius:8px;padding:1px 7px;background:#fff3cd;color:#7a5b00;margin-left:4px;white-space:nowrap}\n  .vz details summary{cursor:pointer;color:var(--secondary-text-color);margin-top:14px}\n  .vz-sr{display:flex;gap:8px;align-items:center}\n  .vz-sr input{flex:1}\n</style>" + `<div class="vz">${out}${vz.msgHtml('queue')}</div>`;
@@ -546,6 +573,8 @@
           [[[
 
           const vz = window.__vr1 = window.__vr1 || { open: null, edit: null, msg: {}, q: '', lists: new Set(), prods: {} };
+          vz.printCards = vz.printCards || new Set();
+          vz.pdis = () => (vz.printing ? ' disabled' : '');
           const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
           vz.esc = esc;
           vz.nl = (d) => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '';
@@ -619,12 +648,23 @@
               vz.say(el, 'form', `Om ${vz.hm()} ${r.codes.length}x ${data.product} toegevoegd (${codes}).${lbl}`, true);
               return;
             }
-            if (a === 'print-all' || a === 'print' || a === 'reprint') {
+            if (a === 'print' || a === 'reprint') {
+              // one label at a time: the Fichero loses the label position with a series
+              if (vz.printing || !code) return;
               const key = a === 'reprint' ? 'list' : 'queue';
-              const old = el.textContent; el.textContent = 'Bezig...'; el.disabled = true;
-              const r = await vz.call('labels_printen', code ? { codes: code } : {});
-              el.textContent = old; el.disabled = false;
-              vz.say(el, key, r.ok ? `Om ${vz.hm()} ${r.geprint.length} label${r.geprint.length === 1 ? '' : 's'} geprint` : r.fout, r.ok);
+              const buttons = () => [...vz.printCards].flatMap((c) => (c.isConnected && c.shadowRoot
+                ? [...c.shadowRoot.querySelectorAll('[data-vz=print],[data-vz=reprint]')] : []));
+              vz.printing = true;
+              const old = el.textContent; el.textContent = 'Bezig...';
+              for (const b of buttons()) b.disabled = true;
+              const r = await Promise.race([
+                vz.call('labels_printen', { codes: code }),
+                new Promise((res) => setTimeout(() => res({ ok: false, fout: 'Geen antwoord van HA binnen 2 minuten' }), 120000)),
+              ]);
+              vz.printing = false;
+              el.textContent = old;
+              for (const b of buttons()) if (b.isConnected) b.disabled = false;
+              vz.say(el, key, r.ok ? `Om ${vz.hm()} label ${code} geprint` : r.fout, r.ok);
               return;
             }
             if (a === 'skip') {
@@ -782,6 +822,8 @@
           [[[
 
           const vz = window.__vr1 = window.__vr1 || { open: null, edit: null, msg: {}, q: '', lists: new Set(), prods: {} };
+          vz.printCards = vz.printCards || new Set();
+          vz.pdis = () => (vz.printing ? ' disabled' : '');
           const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
           vz.esc = esc;
           vz.nl = (d) => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '';
@@ -855,12 +897,23 @@
               vz.say(el, 'form', `Om ${vz.hm()} ${r.codes.length}x ${data.product} toegevoegd (${codes}).${lbl}`, true);
               return;
             }
-            if (a === 'print-all' || a === 'print' || a === 'reprint') {
+            if (a === 'print' || a === 'reprint') {
+              // one label at a time: the Fichero loses the label position with a series
+              if (vz.printing || !code) return;
               const key = a === 'reprint' ? 'list' : 'queue';
-              const old = el.textContent; el.textContent = 'Bezig...'; el.disabled = true;
-              const r = await vz.call('labels_printen', code ? { codes: code } : {});
-              el.textContent = old; el.disabled = false;
-              vz.say(el, key, r.ok ? `Om ${vz.hm()} ${r.geprint.length} label${r.geprint.length === 1 ? '' : 's'} geprint` : r.fout, r.ok);
+              const buttons = () => [...vz.printCards].flatMap((c) => (c.isConnected && c.shadowRoot
+                ? [...c.shadowRoot.querySelectorAll('[data-vz=print],[data-vz=reprint]')] : []));
+              vz.printing = true;
+              const old = el.textContent; el.textContent = 'Bezig...';
+              for (const b of buttons()) b.disabled = true;
+              const r = await Promise.race([
+                vz.call('labels_printen', { codes: code }),
+                new Promise((res) => setTimeout(() => res({ ok: false, fout: 'Geen antwoord van HA binnen 2 minuten' }), 120000)),
+              ]);
+              vz.printing = false;
+              el.textContent = old;
+              for (const b of buttons()) if (b.isConnected) b.disabled = false;
+              vz.say(el, key, r.ok ? `Om ${vz.hm()} label ${code} geprint` : r.fout, r.ok);
               return;
             }
             if (a === 'skip') {
@@ -988,6 +1041,7 @@
           const at = (states['sensor.voorraad'] || {}).attributes;
           if (!at || !at.pakjes) return "<style>\n  .vz{text-align:left;font-size:14px;line-height:1.4;white-space:normal}\n  .vz button{font:inherit;font-size:13px;border:1px solid var(--divider-color);background:var(--card-background-color);\n    color:var(--primary-text-color);border-radius:8px;padding:6px 11px;cursor:pointer}\n  .vz button.pri{background:var(--primary-color);border-color:var(--primary-color);color:#fff}\n  .vz button.arm{background:var(--error-color,#c62828);border-color:var(--error-color,#c62828);color:#fff}\n  .vz button[disabled]{opacity:.6}\n  .vz label{display:block;font-size:12px;color:var(--secondary-text-color);margin:8px 0 2px}\n  .vz input,.vz select{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:8px;\n    border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color)}\n  .vz input[type=date]{cursor:pointer}\n  .vz-row{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}\n  .vz-b{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}\n  .vz-status{margin-top:8px;font-size:13px;min-height:1em}\n  .vz-status:empty{display:none}\n  .vz-status.err{color:var(--error-color,#c62828)}\n  .vz-status.ok{color:var(--success-color,#2e7d32)}\n  .vz-s{color:var(--secondary-text-color);font-size:13px}\n  .vz-empty{color:var(--secondary-text-color);font-size:13px}\n  .vz-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px;align-items:start}\n  .vz-loc{border:1px solid var(--divider-color);border-radius:12px;padding:10px 12px}\n  .vz-h{font-weight:600;font-size:16px;margin:0 0 6px}\n  .vz-h span{font-weight:400;color:var(--secondary-text-color);font-size:13px}\n  .vz-sub{font-weight:600;font-size:13px;color:var(--secondary-text-color);margin:12px 0 2px;text-transform:uppercase;letter-spacing:.04em}\n  table.vz-t{width:100%;border-collapse:collapse;font-size:13px}\n  .vz-t td{padding:4px 6px 4px 0;border-top:1px solid var(--divider-color);vertical-align:top}\n  .vz-t td.n{font-weight:500}\n  .vz-t td.o{color:var(--secondary-text-color)}\n  .late{color:var(--error-color,#c62828) !important}\n  .vz-q{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--divider-color)}\n  .vz-q .n{flex:1}\n  .vz-q code,.vz-pk code{font-size:12px;background:var(--secondary-background-color,#f1f1f1);border-radius:6px;padding:1px 6px}\n  .vz-pk{border-top:1px solid var(--divider-color)}\n  .vz-pk .top{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer}\n  .vz-pk .top .n{flex:1}\n  .vz-pk .top .d{color:var(--secondary-text-color);font-size:13px}\n  .vz-pk .top .q{color:var(--secondary-text-color);white-space:nowrap}\n  .vz-pk .more,.vz-pk .ed{display:none;padding:2px 0 12px}\n  .vz-pk.open .more{display:block}\n  .vz-pk.open.editing .ed{display:block}\n  .vz-pk.open{background:var(--secondary-background-color,#f6f6f6);margin:0 -8px;padding:0 8px;border-radius:10px}\n  .vz-part{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}\n  .vz-part input{flex:1;min-width:90px;width:auto}\n  .vz-badge{font-size:11px;border-radius:8px;padding:1px 7px;background:#fff3cd;color:#7a5b00;margin-left:4px;white-space:nowrap}\n  .vz details summary{cursor:pointer;color:var(--secondary-text-color);margin-top:14px}\n  .vz-sr{display:flex;gap:8px;align-items:center}\n  .vz-sr input{flex:1}\n</style>" + '<div class="vz vz-empty">De integratie Voorraadbeheer is (nog) niet geladen.</div>';
           vz.lists.add(this);
+          vz.printCards.add(this);
           // deep link from a scan: ?voorraad=V-0004 opens that item, also when the view is already open
           vz.link = () => {
             const want = (new URLSearchParams(location.search).get('voorraad') || '').toUpperCase();
@@ -1051,7 +1105,7 @@
                 <div class="more vz-keys">
                   <div class="vz-s">${esc(p.categorie)} · ${dates}${p.begin && p.begin !== p.hoeveelheid ? ' · was ' + esc(p.begin) : ''}</div>
                   <div class="vz-b"><button class="pri" data-vz="all-out" data-code="${c}">Helemaal eruit</button>` +
-                    `${p.label ? `<button data-vz="reprint" data-code="${c}">Label printen</button>` : ''}` +
+                    `${p.label ? `<button data-vz="reprint" data-code="${c}"${vz.pdis()}>Label printen</button>` : ''}` +
                     `<button data-vz="edit" data-code="${c}">Wijzigen</button><button data-vz="open" data-code="${c}">Inklappen</button></div>` +
                   (p.getal != null ? `<div class="vz-part"><input class="vz-amount" placeholder="bv. 200 g" autocomplete="off">` +
                     `<button data-vz="part" data-code="${c}">Haal eruit</button><button data-vz="rest" data-code="${c}">Blijft over</button></div>`
