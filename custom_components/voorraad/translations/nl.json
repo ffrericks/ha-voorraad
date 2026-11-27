@@ -200,7 +200,7 @@
       "fields": {
         "code": { "name": "Code", "description": "Bijvoorbeeld V-0004 (v0004 mag ook)." },
         "hoeveelheid": { "name": "Hoeveel eruit", "description": "Bijvoorbeeld 200 g. Leeg (en geen rest) = helemaal eruit." },
-        "rest": { "name": "Wat blijft over", "description": "In plaats van hoeveel eruit: wat er nog is, bv. 200 g." }
+        "rest": { "name": "Wat blijft over", "description": "In plaats van hoeveel eruit: wat er nog is, bv. 200 g. Meer dan er stond = correctie van de hoeveelheid." }
       }
     },
     "terugzetten": {

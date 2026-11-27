@@ -88,7 +88,7 @@ All actions except `lijst` return `{ok: true, ...}` or `{ok: false, fout: "..."}
 | --- | --- | --- |
 | `voorraad.toevoegen` | `product`, optional `categorie` (name or letters, default the first), `omschrijving`, `hoeveelheid` (e.g. `400 g`), or `regel` (`"Mince - 400 g"`) instead of product and amount, `pakjes` (number), `ingevroren` (freezer), `houdbaar_tot` (required outside a freezer), `printen` (print now instead of queueing) | `{codes}` |
 | `voorraad.van_boodschappenlijst` | `entity_id` (todo list), `uid` of the line, optional `categorie`, `omschrijving`, `pakjes`, `houdbaar_tot`, `printen` | `{codes, product}` |
-| `voorraad.uithalen` | `code` (`v0015` works too), optional `hoeveelheid` (taken out) or `rest` (left); none = everything | `{code, over, op}` |
+| `voorraad.uithalen` | `code` (`v0015` works too), optional `hoeveelheid` (taken out) or `rest` (left; more than recorded corrects the amount); none = everything | `{code, over, op}` |
 | `voorraad.terugzetten` | `code` | `{code}` |
 | `voorraad.wijzigen` | `code`, optional `product`, `omschrijving`, `hoeveelheid`, `categorie` (moves it), `ingevroren`, `houdbaar_tot` | `{code}` |
 | `voorraad.verwijderen` | `code` (deletes without history, for mistakes) | |

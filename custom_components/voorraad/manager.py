@@ -448,6 +448,21 @@ class Manager:
         left = value if rest else have - value
         if left <= 1e-9:
             return self._take_all(pkg)
+        if rest and left > have + 1e-9:
+            # "What is left" is more than recorded: an earlier estimate was off,
+            # so treat it as a correction of the amount.
+            pkg["hoeveelheid"] = round(left, 3)
+            self._log(
+                pkg,
+                f"gecorrigeerd: over {fmt_amount(left, pkg['eenheid'])} "
+                f"(stond op {fmt_amount(have, pkg['eenheid'])})",
+            )
+            self._changed()
+            return {
+                "code": pkg["code"],
+                "over": fmt_amount(left, pkg["eenheid"]),
+                "op": False,
+            }
         if left >= have - 1e-9:
             raise ServiceValidationError(
                 f"Er is nu {fmt_amount(have, pkg['eenheid'])}; dat blijft dan gelijk"
